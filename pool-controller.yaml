@@ -1,0 +1,1623 @@
+esphome:
+  name: "pool-controller"
+  friendly_name: Pool Controller
+  on_boot:
+    priority: -100
+    then: #check if restore of previous light color failed. if so run reset lights to default
+      - lambda: |-
+          if (id(color_fountains) == 0) {
+            id(reset_light_fountains).press();
+          }
+          if (id(color_shallow) == 0 || id(color_middle) == 0 || id(color_deep) == 0) {
+            id(reset_light_pool).press();
+          }
+      - delay: 60s
+      - switch.turn_off: fountain_lights
+      - switch.turn_off: pool_lights_all
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret pool-controller-api-key
+
+ota:
+  password: !secret pool-controller-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Pool-Controller Fallback Hotspot"
+    password: !secret pool-controller-ap-pass
+
+captive_portal:
+
+dallas:
+  - pin: GPIO23
+
+globals:
+  # store color setting for fountains
+  # 1 - Alpine White
+  # 2 - Sky Blue
+  # 3 - Cobalt Blue
+  # 4 - Caribbean Blue
+  # 5 - Spring Green
+  # 6 - Emerald Green
+  # 7 - Emerald Rose
+  # 8 - Magenta
+  # 9 - Violet
+  # 10 - Slow Color Splash
+  # 11 - Fast Color Splash
+  # 12 - America the Beautiful
+  # 13 - Fat Tuesday
+  # 14 - Disco Tech
+  - id: color_fountains
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # store color setting for shallow end light
+  # 1 - Slow Color Change
+  # 2 - Fixed White
+  # 3 - Fixed Blue
+  # 4 - Fixed Green
+  # 5 - Fixed Light Blue
+  # 6 - Fixed Pink
+  # 7 - Caribbean Hues
+  # 8 - Copacabana
+  # 9 - Dance Party
+  - id: color_shallow
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # store color setting for middle light
+  # 1 - Slow Color Change
+  # 2 - Fixed White
+  # 3 - Fixed Blue
+  # 4 - Fixed Green
+  # 5 - Fixed Light Blue
+  # 6 - Fixed Pink
+  # 7 - Caribbean Hues
+  # 8 - Copacabana
+  # 9 - Dance Party
+  - id: color_middle
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # store color setting for deep end light
+  # 1 - Slow Color Change
+  # 2 - Fixed White
+  # 3 - Fixed Blue
+  # 4 - Fixed Green
+  # 5 - Fixed Light Blue
+  # 6 - Fixed Pink
+  # 7 - Caribbean Hues
+  # 8 - Copacabana
+  # 9 - Dance Party
+  - id: color_deep
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+sensor:
+  - platform: dallas
+    address: 0x6700000eb87e0a28
+    name: "Controller Temp"
+    id: 'controller_temp'
+    filters:
+      #- calibrate_linear:
+      #  - 0.0 -> 0.0
+      #  - 21.6 -> 20.6
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+  
+  - platform: dallas
+    address: 0x1000000eb935f428
+    name: "Incomming Water Temp"
+    id: 'incomming_water_temp'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+
+  - platform: dallas
+    address: 0xe100000eb7f61c28
+    name: "Outgoinging Water Temp"
+    id: 'outgoinging_water_temp'
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1  
+    
+  - platform: adc
+    pin: GPIO34
+    name: "Filter Pressure"
+    attenuation: auto
+    unit_of_measurement: "PSI"
+    accuracy_decimals: 1
+    id: 'filter_pressure'
+    update_interval: 5s
+    filters:
+      - calibrate_linear:
+        - 0.31 -> 0.0
+        - 3 -> 100.0
+      # average reading out over 4 minutes at 5s update interval
+      - median:
+          window_size: 48
+          send_every: 48
+          send_first_at: 6
+      
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  id: bus_a
+
+#Configure I/O expander chip
+mcp23017:
+  - id: 'relay_board01'
+    address: 0x20
+
+climate:
+  - platform: thermostat
+    name: "Pool Heater"
+    id: pool_thermostat
+    sensor: incomming_water_temp
+    visual:
+      min_temperature: 0
+      max_temperature: 50
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 0.1
+    min_heating_off_time: 300s
+    min_heating_run_time: 300s
+    min_idle_time: 30s
+    heat_action:
+      - switch.turn_on: pool_heat
+      - switch.turn_on: heat_state
+    idle_action:
+      - switch.turn_off: pool_heat
+      - switch.turn_off: heat_state
+    default_preset: Normal Operation
+    on_boot_restore_from: memory
+    preset:
+      - name: Normal Operation
+        default_target_temperature_low: 31
+      - name: Spa
+        default_target_temperature_low: 40
+
+script:
+  #timer to turn off valve transformer after use. update delay line to more time than it takes valve to move to proper position
+  - id: valve_trans_timer
+    mode: restart
+    then:
+      - switch.turn_on: valve_trans
+      - delay: 1min
+      - switch.turn_off: valve_trans
+
+  # change fountain lights to desired color
+  - id: fountain_color_change
+    mode: single
+    parameters:
+      color_setting: int
+    then:
+      - if:
+          condition:
+            - switch.is_off: fountain_lights
+          then:
+            - switch.turn_on: fountain_lights
+            - delay: 20s
+      - while:
+          condition:
+            lambda: 'return id(color_fountains) != color_setting;'
+          then:
+            - delay: 1s
+            - switch.turn_off: fountain_lights
+            - delay: 1s
+            - switch.turn_on: fountain_lights
+            - lambda: id(color_fountains)++;
+            - lambda: |-
+                if (id(color_fountains) == 15) {
+                  id(color_fountains) = 1;
+                }
+
+  # change Shallow End Light to desired color
+  - id: shallow_color_change
+    mode: single
+    parameters:
+      color_setting: int
+    then:
+      - if:
+          condition:
+            - switch.is_off: shallow_light
+          then:
+            - switch.turn_on: shallow_light
+            - delay: 20s
+      - while:
+          condition:
+            lambda: 'return id(color_shallow) != color_setting;'
+          then:
+            - delay: 1s
+            - switch.turn_off: shallow_light
+            - delay: 1s
+            - switch.turn_on: shallow_light
+            - lambda: id(color_shallow)++;
+            - lambda: |-
+                if (id(color_shallow) == 10) {
+                  id(color_shallow) = 1;
+                }
+
+  # change Middle Light to desired color
+  - id: middle_color_change
+    mode: single
+    parameters:
+      color_setting: int
+    then:
+      - if:
+          condition:
+            - switch.is_off: middle_light
+          then:
+            - switch.turn_on: middle_light
+            - delay: 20s
+      - while:
+          condition:
+            lambda: 'return id(color_middle) != color_setting;'
+          then:
+            - delay: 1s
+            - switch.turn_off: middle_light
+            - delay: 1s
+            - switch.turn_on: middle_light
+            - lambda: id(color_middle)++;
+            - lambda: |-
+                if (id(color_middle) == 10) {
+                  id(color_middle) = 1;
+                }
+
+  # change Deep End Lights to desired color
+  - id: deep_color_change
+    mode: single
+    parameters:
+      color_setting: int
+    then:
+      - if:
+          condition:
+            - switch.is_off: deep_light
+          then:
+            - switch.turn_on: deep_light
+            - delay: 20s
+      - while:
+          condition:
+            lambda: 'return id(color_deep) != color_setting;'
+          then:
+            - delay: 1s
+            - switch.turn_off: deep_light
+            - delay: 1s
+            - switch.turn_on: deep_light
+            - lambda: id(color_deep)++;
+            - lambda: |-
+                if (id(color_deep) == 10) {
+                  id(color_deep) = 1;
+                }
+
+button:
+  # reset fountain lights to default color
+  - platform: template
+    name: "Fountain Light Reset"
+    id: reset_light_fountains
+    on_press:
+      - logger.log: fountain reset pressed
+      - switch.turn_on: fountain_lights
+      - delay: 20s
+      - switch.turn_off: fountain_lights
+      - delay: 5s
+      - switch.turn_on: fountain_lights
+      - lambda: id(color_fountains) = 1;
+
+  - platform: template
+    # reset all pool lights to default color
+    name: "Pool Light Reset"
+    id: reset_light_pool
+    on_press:
+      - logger.log: pool reset pressed
+      - switch.turn_on: shallow_light
+      - switch.turn_on: middle_light
+      - switch.turn_on: deep_light
+      - delay: 20s
+      - switch.turn_off: pool_light_trans_raw
+      - delay: 7s
+      - switch.turn_on: pool_light_trans_raw
+      - lambda: id(color_shallow) = 1;
+      - lambda: id(color_middle) = 1;
+      - lambda: id(color_deep) = 1;
+
+switch:
+  # sets Shallow End Pool Light to Slow Color Change
+  - platform: template
+    name: Shallow Pool Light - Slow Color Change
+    id: shallow_light_pool_slowcolorchange
+    lambda: |-
+      if (id(color_shallow) == 1) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 1
+
+  # sets Shallow End Pool Light to White
+  - platform: template
+    name: Shallow Pool Light - White
+    id: shallow_light_pool_white
+    lambda: |-
+      if (id(color_shallow) == 2) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 2
+
+  # sets Shallow End Pool Light to Blue
+  - platform: template
+    name: Shallow Pool Light - Blue
+    id: shallow_light_pool_blue
+    lambda: |-
+      if (id(color_shallow) == 3) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 3
+  
+  # sets Shallow End Pool Light to Green
+  - platform: template
+    name: Shallow Pool Light - Green
+    id: shallow_light_pool_green
+    lambda: |-
+      if (id(color_shallow) == 4) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 4
+  
+  # sets Shallow End Pool Light to Light Blue
+  - platform: template
+    name: Shallow Pool Light - Light Blue
+    id: shallow_light_pool_lightblue
+    lambda: |-
+      if (id(color_shallow) == 5) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 5
+
+  # sets Shallow End Pool Light to Pink
+  - platform: template
+    name: Shallow Pool Light - Pink
+    id: shallow_light_pool_pink
+    lambda: |-
+      if (id(color_shallow) == 6) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 6
+
+  # sets Shallow End Pool Light to Caribbean Hues
+  - platform: template
+    name: Shallow Pool Light - Caribbean Hues
+    id: shallow_light_pool_caribbeanhues
+    lambda: |-
+      if (id(color_shallow) == 7) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 7
+  
+  # sets Shallow End Pool Light to Copacabana
+  - platform: template
+    name: Shallow Pool Light - Copacabana
+    id: shallow_light_pool_copacabana
+    lambda: |-
+      if (id(color_shallow) == 8) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 8
+  
+  # sets Shallow End Pool Light to Dance Party
+  - platform: template
+    name: Shallow Pool Light - Dance Party
+    id: shallow_light_pool_danceparty
+    lambda: |-
+      if (id(color_shallow) == 9) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 9
+
+# sets Middle End Pool Light to Slow Color Change
+  - platform: template
+    name: Middle Pool Light - Slow Color Change
+    id: middle_light_pool_slowcolorchange
+    lambda: |-
+      if (id(color_middle) == 1) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 1
+
+  # sets Middle End Pool Light to White
+  - platform: template
+    name: Middle Pool Light - White
+    id: middle_light_pool_white
+    lambda: |-
+      if (id(color_middle) == 2) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 2
+
+  # sets Middle End Pool Light to Blue
+  - platform: template
+    name: Middle Pool Light - Blue
+    id: middle_light_pool_blue
+    lambda: |-
+      if (id(color_middle) == 3) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 3
+  
+  # sets Middle End Pool Light to Green
+  - platform: template
+    name: Middle Pool Light - Green
+    id: middle_light_pool_green
+    lambda: |-
+      if (id(color_middle) == 4) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 4
+  
+  # sets Middle End Pool Light to Light Blue
+  - platform: template
+    name: Middle Pool Light - Light Blue
+    id: middle_light_pool_lightblue
+    lambda: |-
+      if (id(color_middle) == 5) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 5
+
+  # sets Middle End Pool Light to Pink
+  - platform: template
+    name: Middle Pool Light - Pink
+    id: middle_light_pool_pink
+    lambda: |-
+      if (id(color_middle) == 6) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 6
+
+  # sets Middle End Pool Light to Caribbean Hues
+  - platform: template
+    name: Middle Pool Light - Caribbean Hues
+    id: middle_light_pool_caribbeanhues
+    lambda: |-
+      if (id(color_middle) == 7) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 7
+  
+  # sets Middle End Pool Light to Copacabana
+  - platform: template
+    name: Middle Pool Light - Copacabana
+    id: middle_light_pool_copacabana
+    lambda: |-
+      if (id(color_middle) == 8) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 8
+  
+  # sets Middle End Pool Light to Dance Party
+  - platform: template
+    name: Middle Pool Light - Dance Party
+    id: middle_light_pool_danceparty
+    lambda: |-
+      if (id(color_middle) == 9) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: middle_color_change
+          color_setting: 9
+
+# sets Deep End Pool Light to Slow Color Change
+  - platform: template
+    name: Deep Pool Light - Slow Color Change
+    id: deep_light_pool_slowcolorchange
+    lambda: |-
+      if (id(color_deep) == 1) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 1
+
+  # sets Deep End Pool Light to White
+  - platform: template
+    name: Deep Pool Light - White
+    id: deep_light_pool_white
+    lambda: |-
+      if (id(color_deep) == 2) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 2
+
+  # sets Deep End Pool Light to Blue
+  - platform: template
+    name: Deep Pool Light - Blue
+    id: deep_light_pool_blue
+    lambda: |-
+      if (id(color_deep) == 3) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 3
+  
+  # sets Deep End Pool Light to Green
+  - platform: template
+    name: Deep Pool Light - Green
+    id: deep_light_pool_green
+    lambda: |-
+      if (id(color_deep) == 4) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 4
+  
+  # sets Deep End Pool Light to Light Blue
+  - platform: template
+    name: Deep Pool Light - Light Blue
+    id: deep_light_pool_lightblue
+    lambda: |-
+      if (id(color_deep) == 5) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 5
+
+  # sets Deep End Pool Light to Pink
+  - platform: template
+    name: Deep Pool Light - Pink
+    id: deep_light_pool_pink
+    lambda: |-
+      if (id(color_deep) == 6) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 6
+
+  # sets Deep End Pool Light to Caribbean Hues
+  - platform: template
+    name: Deep Pool Light - Caribbean Hues
+    id: deep_light_pool_caribbeanhues
+    lambda: |-
+      if (id(color_deep) == 7) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 7
+  
+  # sets Deep End Pool Light to Copacabana
+  - platform: template
+    name: Deep Pool Light - Copacabana
+    id: deep_light_pool_copacabana
+    lambda: |-
+      if (id(color_deep) == 8) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 8
+  
+  # sets Deep End Pool Light to Dance Party
+  - platform: template
+    name: Deep Pool Light - Dance Party
+    id: deep_light_pool_danceparty
+    lambda: |-
+      if (id(color_deep) == 9) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: deep_color_change
+          color_setting: 9
+
+# sets All Pool Lights to Slow Color Change
+  - platform: template
+    name: All Pool Lights - Slow Color Change
+    id: all_light_pool_slowcolorchange
+    lambda: |-
+      if (id(color_shallow) == 1 && id(color_middle) == 1 && id(color_deep) == 1) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 1
+      - script.execute:
+          id: middle_color_change
+          color_setting: 1
+      - script.execute:
+          id: deep_color_change
+          color_setting: 1
+
+  # sets All Pool Lights to White
+  - platform: template
+    name: All Pool Lights - White
+    id: all_light_pool_white
+    lambda: |-
+      if (id(color_shallow) == 2 && id(color_middle) == 2 && id(color_deep) == 2) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 2
+      - script.execute:
+          id: middle_color_change
+          color_setting: 2
+      - script.execute:
+          id: deep_color_change
+          color_setting: 2
+
+  # sets All Pool Lights to Blue
+  - platform: template
+    name: All Pool Lights - Blue
+    id: all_light_pool_blue
+    lambda: |-
+      if (id(color_shallow) == 3 && id(color_middle) == 3 && id(color_deep) == 3) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 3
+      - script.execute:
+          id: middle_color_change
+          color_setting: 3
+      - script.execute:
+          id: deep_color_change
+          color_setting: 3
+  
+  # sets All Pool Lights to Green
+  - platform: template
+    name: All Pool Lights - Green
+    id: all_light_pool_green
+    lambda: |-
+      if (id(color_shallow) == 4 && id(color_middle) == 4 && id(color_deep) == 4) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 4
+      - script.execute:
+          id: middle_color_change
+          color_setting: 4
+      - script.execute:
+          id: deep_color_change
+          color_setting: 4
+  
+  # sets All Pool Lights to Light Blue
+  - platform: template
+    name: All Pool Lights - Light Blue
+    id: all_light_pool_lightblue
+    lambda: |-
+      if (id(color_shallow) == 5 && id(color_middle) == 5 && id(color_deep) == 5) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 5
+      - script.execute:
+          id: middle_color_change
+          color_setting: 5
+      - script.execute:
+          id: deep_color_change
+          color_setting: 5
+
+  # sets All Pool Lights to Pink
+  - platform: template
+    name: All Pool Lights - Pink
+    id: all_light_pool_pink
+    lambda: |-
+      if (id(color_shallow) == 6 && id(color_middle) == 6 && id(color_deep) == 6) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 6
+      - script.execute:
+          id: middle_color_change
+          color_setting: 6
+      - script.execute:
+          id: deep_color_change
+          color_setting: 6
+
+  # sets All Pool Lights to Caribbean Hues
+  - platform: template
+    name: All Pool Lights - Caribbean Hues
+    id: all_light_pool_caribbeanhues
+    lambda: |-
+      if (id(color_shallow) == 7 && id(color_middle) == 7 && id(color_deep) == 7) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 7
+      - script.execute:
+          id: middle_color_change
+          color_setting: 7
+      - script.execute:
+          id: deep_color_change
+          color_setting: 7
+  
+  # sets All Pool Lights to Copacabana
+  - platform: template
+    name: All Pool Lights - Copacabana
+    id: all_light_pool_copacabana
+    lambda: |-
+      if (id(color_shallow) == 8 && id(color_middle) == 8 && id(color_deep) == 8) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 8
+      - script.execute:
+          id: middle_color_change
+          color_setting: 8
+      - script.execute:
+          id: deep_color_change
+          color_setting: 8
+  
+  # sets All Pool Lights to Dance Party
+  - platform: template
+    name: All Pool Lights - Dance Party
+    id: all_light_pool_danceparty
+    lambda: |-
+      if (id(color_shallow) == 9 && id(color_middle) == 9 && id(color_deep) == 9) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: shallow_color_change
+          color_setting: 9
+      - script.execute:
+          id: middle_color_change
+          color_setting: 9
+      - script.execute:
+          id: deep_color_change
+          color_setting: 9
+
+  # sets fountain lights to Alpine White
+  - platform: template
+    name: "Fountain Lights - Alpine White"
+    id: light_fountain_white
+    lambda: |-
+      if (id(color_fountains) == 1) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 1
+  
+  # sets fountain lights to Sky Blue
+  - platform: template
+    name: "Fountain Lights - Sky Blue"
+    id: light_fountain_skyblue
+    lambda: |-
+      if (id(color_fountains) == 2) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 2
+
+# sets fountain lights to Cobalt Blue
+  - platform: template
+    name: "Fountain Lights - Cobalt Blue"
+    id: light_fountain_cobaltblue
+    lambda: |-
+      if (id(color_fountains) == 3) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 3
+
+# sets fountain lights to Caribbean Blue
+  - platform: template
+    name: "Fountain Lights - Caribbean Blue"
+    id: light_fountain_caribbeanblue
+    lambda: |-
+      if (id(color_fountains) == 4) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 4
+
+# sets fountain lights to Spring Green
+  - platform: template
+    name: "Fountain Lights - Spring Green"
+    id: light_fountain_springgreen
+    lambda: |-
+      if (id(color_fountains) == 5) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 5
+
+# sets fountain lights to Emerald Green
+  - platform: template
+    name: "Fountain Lights - Emerald Green"
+    id: light_fountain_emeraldgreen
+    lambda: |-
+      if (id(color_fountains) == 6) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 6
+
+# sets fountain lights to Emerald Rose
+  - platform: template
+    name: "Fountain Lights - Emerald Rose"
+    id: light_fountain_emeraldrose
+    lambda: |-
+      if (id(color_fountains) == 7) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 7
+
+# sets fountain lights to Magenta
+  - platform: template
+    name: "Fountain Lights - Magenta"
+    id: light_fountain_magenta
+    lambda: |-
+      if (id(color_fountains) == 8) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 8
+
+# sets fountain lights to Violet
+  - platform: template
+    name: "Fountain Lights - Violet"
+    id: light_fountain_violet
+    lambda: |-
+      if (id(color_fountains) == 9) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 9
+
+# sets fountain lights to Slow Color Splash
+  - platform: template
+    name: "Fountain Lights - Slow Color Splash"
+    id: light_fountain_slowcolorsplash
+    lambda: |-
+      if (id(color_fountains) == 10) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 10
+
+# sets fountain lights to Fast Color Splash
+  - platform: template
+    name: "Fountain Lights - Fast Color Splash"
+    id: light_fountain_fastcolorsplash
+    lambda: |-
+      if (id(color_fountains) == 11) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 11
+
+# sets fountain lights to America the Beautiful
+  - platform: template
+    name: "Fountain Lights - America the Beautiful"
+    id: light_fountain_americathebeautiful
+    lambda: |-
+      if (id(color_fountains) == 12) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 12
+
+# sets fountain lights to Fat Tuesday
+  - platform: template
+    name: "Fountain Lights - Fat Tuesday"
+    id: light_fountain_fattuesday
+    lambda: |-
+      if (id(color_fountains) == 13) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 13
+
+# sets fountain lights to Disco Tech
+  - platform: template
+    name: "Fountain Lights - Disco Tech"
+    id: light_fountain_discotech
+    lambda: |-
+      if (id(color_fountains) == 14) {
+        return true;
+      } else {
+          return false;
+      }
+    turn_on_action:
+      - script.execute:
+          id: fountain_color_change
+          color_setting: 14                                
+
+#Inverts the displayed state of the actual Return Valve relay
+#If relay is physically OFF it will show as ON in Home Assistant
+#Relay OFF means valve is open in this case
+  - platform: template
+    #name: "Return Valve"
+    id: valve_return
+    #sync state with physical relay for valve and prevent dead heading the pump by checking the state of the other valves
+    #if both spa and deck jet fountain valves are closed, open the return valve
+    lambda: |-
+      if (id(valve_return_raw).state) {
+        if (!id(valve_fountains).state && !id(valve_spa).state) {
+          id(valve_return_raw).turn_off();
+        }
+        return false;
+      } else {
+        return true;
+      }
+    turn_on_action:
+      - switch.turn_off: valve_return_raw
+    turn_off_action:
+      - switch.turn_on: valve_return_raw
+
+#Switch stores the state of pool heating (ON/OFF) so it can be restored easily after heat is turned off due to lockout
+  - platform: template
+    #name: Heating State
+    id: heat_state
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: True
+
+#Switch to store lockout state for pool_heat (Disable heat if pump is not running)
+  - platform: template
+    #name: Heat Lockout
+    id: heat_lock
+    optimistic: True
+    #check if pump is running and lockout if it is not
+    lambda: |-
+      if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+        return false;
+      } else {
+        return true;
+      }
+    on_turn_off:
+      #check if heat is called for when comming out of lockout and delay 15 minutes if so to allow time for temp sensors to stabilize
+      - delay: 15min
+      - if:
+          condition:
+            switch.is_on: heat_state
+          then:
+            - switch.turn_on: pool_heat
+    on_turn_on:
+      - delay: 1s #delay prevents short cycling the heat relay when changing pump speeds
+      - switch.turn_off: pool_heat #turn off heat when going into lockout
+
+#Switch for Pool Heat that checks heat_lock status pool_heat_raw should not be used directly. this switch should be used instead
+  - platform: template
+    name: "Pool Heat"
+    id: pool_heat
+    restore_mode: RESTORE_DEFAULT_OFF
+    #match switch state to physical relay controlling heat
+    lambda: |-
+      if (id(pool_heat_raw).state) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - if:
+          condition: #check if we are in lockout state
+            switch.is_on: heat_lock
+          then: #if we are in lockout turn heat off
+            switch.turn_off: pool_heat_raw
+          else:
+            - switch.turn_on: pool_heat_raw
+    turn_off_action:
+      - switch.turn_off: pool_heat_raw
+
+  - platform: template
+    name: "Spa Jets"
+    id: spa_jets
+    lambda: |-
+      if (id(valve_spa).state) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - if:
+          condition:
+            switch.is_on: fountains
+          then:
+            - switch.turn_on: valve_spa
+            - delay: 15s
+            - switch.turn_on: pump3
+          else:
+            - switch.turn_on: valve_spa
+            - switch.turn_off: valve_return
+            - delay: 15s
+            - switch.turn_on: pump2
+    turn_off_action:
+      - if:
+          condition:
+            switch.is_on: fountains
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+                      return true;
+                    } else {
+                      return false;
+                    }
+                then:
+                  - switch.turn_on: pump2
+            - switch.turn_off: valve_spa
+          else:
+            - if:
+                condition:
+                  lambda: |-
+                    if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+                      return true;
+                    } else {
+                      return false;
+                    }
+                then:
+                  - switch.turn_on: pump1
+            - switch.turn_on: valve_return
+            - switch.turn_off: valve_spa
+
+  - platform: template
+    name: "Fountains"
+    id: fountains
+    lambda: |-
+      if (id(valve_fountains).state) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - if:
+          condition:
+            switch.is_on: valve_spa
+          then:
+            - switch.turn_on: valve_fountains
+            - delay: 15s
+            - switch.turn_on: pump3
+          else:
+            - switch.turn_on: valve_fountains
+            - switch.turn_off: valve_return
+            - delay: 15s
+            - switch.turn_on: pump2
+    turn_off_action:
+      - if:
+          condition:
+            switch.is_on: valve_spa
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+                      return true;
+                    } else {
+                      return false;
+                    }
+                then:
+                  - switch.turn_on: pump2
+            - switch.turn_off: fountain_lights
+            - switch.turn_off: valve_fountains
+          else:
+            - if:
+                condition:
+                  lambda: |-
+                    if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+                      return true;
+                    } else {
+                      return false;
+                    }
+                then:
+                  - switch.turn_on: pump1
+            - switch.turn_on: valve_return
+            - switch.turn_off: fountain_lights
+            - switch.turn_off: valve_fountains
+
+  - platform: template
+    name: "All Pool Lights"
+    id: pool_lights_all
+    lambda: |-
+      if (id(shallow_light).state && id(middle_light).state && id(deep_light).state) {
+        return true;
+      } else {
+        return false;
+      }
+    turn_on_action:
+      - switch.turn_on: shallow_light
+      - switch.turn_on: middle_light
+      - switch.turn_on: deep_light
+    turn_off_action:
+      - switch.turn_off: shallow_light
+      - switch.turn_off: middle_light
+      - switch.turn_off: deep_light
+
+  #sets state of pool light transformer (on/off) automatically based on state of pool lighting switches
+  - platform: template
+    #name: Pool Light Transformer
+    id: pool_light_trans
+    optimistic: True
+    lambda: |-
+      if (id(shallow_light).state || id(middle_light).state || id(deep_light).state) {
+        return true;
+      } else {
+        return false;
+      }
+    on_turn_off:
+      - if:
+          condition:
+            lambda: |-
+              if (id(shallow_color_change).is_running() || id(middle_color_change).is_running() || id(deep_color_change).is_running()) {
+                return true;
+              } else {
+                return false;
+              }
+          then:
+          else:
+            - switch.turn_off: pool_light_trans_raw          
+    on_turn_on:
+      - switch.turn_on: pool_light_trans_raw
+
+  - platform: template
+    name: "Fountain Lights"
+    id: 'fountain_lights'
+    optimistic: True
+    lambda: |-
+      if (id(fountain_lights_raw).state) {
+        return true;
+      } else {
+        return false;
+      }
+    on_turn_on:
+      - if:
+          condition:
+            switch.is_on: fountains
+          then:  
+            - switch.turn_on: fountain_lights_raw
+    on_turn_off:
+      - switch.turn_off: fountain_lights_raw
+  
+  #reset valves to default when pump is turned off
+  - platform: template
+    id: valve_reset
+    optimistic: True
+    lambda: |-
+      if (id(pump1).state || id(pump2).state || id(pump3).state || id(pump4).state) {
+        return true;
+      } else {
+        return false;
+      }
+    on_turn_off:
+      - switch.turn_off: fountains
+      - switch.turn_off: spa_jets
+
+# Relay outputs pin A0 -> relay 1, pin B0 -> relay 9      
+  #physical relay for pool heating
+  - platform: gpio
+    #name: "Pool Heat Raw"
+    id: 'pool_heat_raw'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A0
+      number: 0
+      mode:
+        output: True
+      inverted: True
+  
+  #main power to pool lighting
+  - platform: gpio
+    #name: "Pool Light Transformer"
+    id: 'pool_light_trans_raw'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A1
+      number: 1
+      mode:
+        output: True
+      inverted: True
+      
+  #not used
+  - platform: gpio
+    #name: "Relay3"
+    id: 'relay3'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A2
+      number: 2
+      mode:
+        output: True
+      inverted: True
+  
+  #not used
+  - platform: gpio
+    #name: "Relay4"
+    id: 'relay4'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A3
+      number: 3
+      mode:
+        output: True
+      inverted: True
+
+  #pump speed 1
+  - platform: gpio
+    name: "Pump Speed 1"
+    id: 'pump1'
+    interlock: &interlock_group [pump1, pump2, pump3, pump4]
+    restore_mode: RESTORE_DEFAULT_OFF
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A4
+      number: 4
+      mode:
+        output: True
+      inverted: True
+  
+  #pump speed 2
+  - platform: gpio
+    name: "Pump Speed 2"
+    id: 'pump2'
+    interlock: *interlock_group
+    restore_mode: RESTORE_DEFAULT_OFF
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A5
+      number: 5
+      mode:
+        output: True
+      inverted: True
+
+  #pump speed 3
+  - platform: gpio
+    name: "Pump Speed 3"
+    id: 'pump3'
+    interlock: *interlock_group
+    restore_mode: RESTORE_DEFAULT_OFF
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A6
+      number: 6
+      mode:
+        output: True
+      inverted: True
+  
+  #pump speed 4
+  - platform: gpio
+    name: "Pump Speed 4"
+    id: 'pump4'
+    interlock: *interlock_group
+    restore_mode: RESTORE_DEFAULT_OFF
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin A7
+      number: 7
+      mode:
+        output: True
+      inverted: True
+
+  #power for transformer to operate valves
+  - platform: gpio
+    #name: "Valve Transformer"
+    id: 'valve_trans'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B0
+      number: 8
+      mode:
+        output: True
+      inverted: True
+
+#Physical relay to control Return Valve
+#This switch is not shown by default in Home Assistant and should be controlled by "Return Valve" template switch
+  - platform: gpio
+    #name: "Return Valve Raw"
+    id: 'valve_return_raw'
+    #disabled_by_default: True
+    on_turn_on:
+      script.execute: valve_trans_timer
+    on_turn_off:
+      script.execute: valve_trans_timer
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B1
+      number: 9
+      mode:
+        output: True
+      inverted: True
+      
+  #valve for deck jet fountains
+  - platform: gpio
+    #name: "Fountain Valve"
+    id: 'valve_fountains'
+    on_turn_on:
+      script.execute: valve_trans_timer
+    on_turn_off:
+      script.execute: valve_trans_timer
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B2
+      number: 10
+      mode:
+        output: True
+      inverted: True
+  
+  #valve for spa jets
+  - platform: gpio
+    #name: "Spa Jet Valve"
+    id: 'valve_spa'
+    on_turn_on:
+      script.execute: valve_trans_timer
+    on_turn_off:
+      script.execute: valve_trans_timer
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B3
+      number: 11
+      mode:
+        output: True
+      inverted: True
+
+  #power for deck jet fountain lights
+  - platform: gpio
+    #name: "Fountain Lights"
+    id: 'fountain_lights_raw'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B4
+      number: 12
+      mode:
+        output: True
+      inverted: True
+  
+  #shallow end pool light
+  - platform: gpio
+    name: "Shallow End Light"
+    id: 'shallow_light'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B5
+      number: 13
+      mode:
+        output: True
+      inverted: True
+      
+  #middle pool light
+  - platform: gpio
+    name: "Middle Light"
+    id: 'middle_light'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B6
+      number: 14
+      mode:
+        output: True
+      inverted: True
+
+  #deep end pool light
+  - platform: gpio
+    name: "Deep End Light"
+    id: 'deep_light'
+    pin:
+      mcp23xxx: relay_board01
+      # Use pin B7
+      number: 15
+      mode:
+        output: True
+      inverted: True
