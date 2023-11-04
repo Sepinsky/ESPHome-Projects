@@ -8,7 +8,9 @@ substitutions:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
 
 # Enable logging
 logger:
