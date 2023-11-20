@@ -1,0 +1,392 @@
+esphome:
+  name: "lego-city"
+  friendly_name: Lego City
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret test-device-api-key
+
+ota:
+  password: !secret test-device-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Test-Device"
+    password: !secret test-device-ap-pass
+
+captive_portal:
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  id: bus_a
+
+pca9685:
+  - id: pca9685_hub1
+    address: 0x60
+    frequency: 50
+
+  - id: pca9685_hub2
+    address: 0x61
+    frequency: 50
+
+binary_sensor:
+  - platform: gpio
+    name: Course Hold
+    pin: 
+      number: GPIO14
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    #filters:
+    #  - delayed_on: 100ms
+    #  - delayed_off: 100ms
+    id: reed_switch1
+    on_press:
+      then:
+        - switch.turn_off: motor_c
+  
+  - platform: gpio
+    name: Station
+    pin: 
+      number: GPIO12
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    #filters:
+    #  - delayed_on: 100ms
+    #  - delayed_off: 100ms
+    id: reed_switch2
+    on_press:
+      then:
+        - switch.turn_off: motor_a
+
+  - platform: gpio
+    name: Lift Hold
+    pin: 
+      number: GPIO13
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    #filters:
+    #  - delayed_on: 100ms
+    #  - delayed_off: 100ms
+    id: reed_switch3
+    on_press:
+      then:
+        - switch.turn_off: motor_b
+
+output:
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor3_speed
+    channel: 2
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor3_fw
+    channel: 4
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor3_rv
+    channel: 3
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor4_speed
+    channel: 7
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor4_fw
+    channel: 5
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor4_rv
+    channel: 6
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor1_speed
+    channel: 8
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor1_fw
+    channel: 10
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor1_rv
+    channel: 9
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor2_speed
+    channel: 13
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor2_fw
+    channel: 11
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub1' 
+    id: hub1_motor2_rv
+    channel: 12
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor3_speed
+    channel: 2
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor3_fw
+    channel: 4
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor3_rv
+    channel: 3
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor4_speed
+    channel: 7
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor4_fw
+    channel: 5
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor4_rv
+    channel: 6
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor1_speed
+    channel: 8
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor1_fw
+    channel: 10
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor1_rv
+    channel: 9
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor2_speed
+    channel: 13
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor2_fw
+    channel: 11
+
+  - platform: pca9685
+    pca9685_id: 'pca9685_hub2' 
+    id: hub2_motor2_rv
+    channel: 12
+
+light:
+  - platform: monochromatic
+    name: "Motor3"
+    output: hub1_motor3_speed
+    default_transition_length: 0s
+    on_turn_on:
+      - output.set_level:
+          id: hub1_motor3_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor3_rv
+          level: 0%
+    on_turn_off:
+      - output.set_level:
+          id: hub1_motor3_fw
+          level: 0%
+      - output.set_level:
+          id:  hub1_motor3_rv
+          level: 0%
+
+  - platform: monochromatic
+    name: "Light1"
+    output: hub2_motor1_speed
+    default_transition_length: 0s
+    on_turn_on:
+      - output.set_level:
+          id: hub2_motor1_fw
+          level: 100%
+      - output.set_level:
+          id:  hub2_motor1_rv
+          level: 0%
+    on_turn_off:
+      - output.set_level:
+          id: hub2_motor1_fw
+          level: 0%
+      - output.set_level:
+          id:  hub2_motor1_rv
+          level: 0%
+
+switch:
+  - platform: template
+    name: "Motor A"
+    id: motor_a
+    #icon: "mdi:chemical-weapon"
+    turn_on_action:
+      # Clockwise direction:
+      - output.set_level:
+          id:  hub1_motor1_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor1_rv
+          level: 0%
+      - delay: 500ms
+      - output.set_level:
+          id: hub1_motor1_speed
+          level: 100%
+      - switch.template.publish:
+          id: motor_a
+          state: ON
+    turn_off_action:
+      - output.set_level: 
+          id: hub1_motor1_fw
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor1_rv
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor1_speed
+          level: 0%
+      - switch.template.publish:
+          id: motor_a
+          state: OFF
+
+# Motor B
+  - platform: template
+    name: "Motor B"
+    id: motor_b
+    #icon: "mdi:chemical-weapon"
+    turn_on_action:
+      # Clockwise direction:
+      - output.set_level:
+          id:  hub1_motor2_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor2_rv
+          level: 0%
+      - delay: 500ms
+      - output.set_level:
+          id: hub1_motor2_speed
+          level: 100%
+      - switch.template.publish:
+          id: motor_b
+          state: ON
+    turn_off_action:
+      - output.set_level: 
+          id: hub1_motor2_fw
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor2_rv
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor2_speed
+          level: 0%
+      - switch.template.publish:
+          id: motor_b
+          state: OFF
+
+# Motor C
+  - platform: template
+    name: "Motor C"
+    id: motor_c
+    #icon: "mdi:chemical-weapon"
+    turn_on_action:
+      # Clockwise direction:
+      - output.set_level:
+          id:  hub1_motor3_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor3_rv
+          level: 0%
+      - delay: 500ms
+      - output.set_level:
+          id: hub1_motor3_speed
+          level: 100%
+      - switch.template.publish:
+          id: motor_c
+          state: ON
+    turn_off_action:
+      - output.set_level: 
+          id: hub1_motor3_fw
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor3_rv
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor3_speed
+          level: 0%
+      - switch.template.publish:
+          id: motor_c
+          state: OFF
+
+# Motor d
+  - platform: template
+    name: "Motor D"
+    id: motor_d
+    #icon: "mdi:chemical-weapon"
+    turn_on_action:
+      # Clockwise direction:
+      - output.set_level:
+          id:  hub1_motor4_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor4_rv
+          level: 0%
+      - delay: 500ms
+      - output.set_level:
+          id: hub1_motor4_speed
+          level: 100%
+      - switch.template.publish:
+          id: motor_d
+          state: ON
+    turn_off_action:
+      - output.set_level: 
+          id: hub1_motor4_fw
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor4_rv
+          level: 0%
+      - output.set_level: 
+          id: hub1_motor4_speed
+          level: 0%
+      - switch.template.publish:
+          id: motor_d
+          state: OFF
