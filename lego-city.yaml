@@ -1,6 +1,18 @@
 esphome:
   name: "lego-city"
   friendly_name: Lego City
+  on_boot:
+    then:
+      lambda: |-
+        if (id(fm_station_hold).state) {
+          id(fm_station_block) = 1;
+        }
+        if (id(fm_lift_hold).state) {
+          id(fm_lift_block) = 1;
+        }
+        if (id(fm_course_hold).state) {
+          id(fm_course_block) = 1;
+        }  
 
 esp32:
   board: esp32dev
@@ -15,10 +27,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret test-device-api-key
+    key: !secret lego-city-api-key
 
 ota:
-  password: !secret test-device-ota-pass
+  password: !secret lego-city-ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -26,10 +38,27 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Test-Device"
-    password: !secret test-device-ap-pass
+    ssid: "Lego-City"
+    password: !secret lego-city-ap-pass
 
 captive_portal:
+
+globals:
+  #Store block one data for each zone
+  - id: fm_station_block
+    type: int
+    restore_value: no
+    initial_value: '0'
+  
+  - id: fm_lift_block
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: fm_course_block
+    type: int
+    restore_value: no
+    initial_value: '0'
 
 i2c:
   sda: 21
@@ -47,53 +76,129 @@ pca9685:
     frequency: 50
 
 binary_sensor:
-  - platform: gpio
-    name: Course Hold
-    pin: 
-      number: GPIO14
-      mode:
-        input: True
-        pullup: True
-      inverted: True
-    #filters:
-    #  - delayed_on: 100ms
-    #  - delayed_off: 100ms
-    id: reed_switch1
-    on_press:
-      then:
-        - switch.turn_off: motor_c
-  
-  - platform: gpio
-    name: Station
-    pin: 
-      number: GPIO12
-      mode:
-        input: True
-        pullup: True
-      inverted: True
-    #filters:
-    #  - delayed_on: 100ms
-    #  - delayed_off: 100ms
-    id: reed_switch2
-    on_press:
-      then:
-        - switch.turn_off: motor_a
+  - platform: template
+    name: Station Block
+    lambda: 'return (id(fm_station_block) == 1);'
+
+  - platform: template
+    name: Lift Block
+    lambda: 'return (id(fm_lift_block) == 1);'
+
+  - platform: template
+    name: Course Block
+    lambda: 'return (id(fm_course_block) == 1);'
 
   - platform: gpio
+    name: Station Hold
+    id: fm_station_hold
+    pin: 
+      number: GPIO27
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      - delayed_off: 200ms
+    on_press:
+      then:
+        - lambda: id(fm_station_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - delay: 5s
+              - while:
+                  condition:
+                    lambda: 'return (id(fm_lift_block) == 1);'
+                  then:
+                    delay: 500ms
+              - light.turn_on: fm_station_drive
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_course_block) != 1);'
+                  then:
+                    - light.turn_on: fm_lift_hill_drive
+                    - light.turn_on: fm_lift_hold_drive
+    on_release:
+      then:
+        - lambda: id(fm_station_block) = 0;
+        - lambda: id(fm_lift_block) = 1;
+        - delay: 600ms
+        - light.turn_off: fm_station_drive
+        
+  - platform: gpio
     name: Lift Hold
+    id: fm_lift_hold
     pin: 
       number: GPIO13
       mode:
         input: True
         pullup: True
       inverted: True
-    #filters:
-    #  - delayed_on: 100ms
-    #  - delayed_off: 100ms
-    id: reed_switch3
+    filters:
+      - delayed_off: 200ms
     on_press:
       then:
-        - switch.turn_off: motor_b
+        - lambda: id(fm_lift_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - while:
+                  condition:
+                    lambda: 'return (id(fm_course_block) == 1);'
+                  then:
+                    delay: 500ms
+              - light.turn_on: fm_lift_hill_drive
+              - light.turn_on: fm_lift_hold_drive
+    on_release:
+      then:
+        - lambda: id(fm_lift_block) = 0;
+        - lambda: id(fm_course_block) = 1;
+        - delay: 1s
+        - light.turn_off: fm_lift_hold_drive
+
+  - platform: gpio
+    name: Course Hold
+    id: fm_course_hold
+    pin: 
+      number: GPIO14
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      - delayed_off: 200ms
+    on_press:
+      then:
+        - lambda: id(fm_course_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_station_block) == 1);'
+                  then:
+                    - light.turn_off: fm_lift_hill_drive
+                    - while:
+                       condition:
+                         lambda: 'return (id(fm_station_block) == 1);'
+                       then:
+                         delay: 500ms
+              - light.turn_on: fm_lift_hill_drive
+            else:
+              light.turn_off: fm_lift_hill_drive
+    on_release:
+      then:
+        - lambda: id(fm_course_block) = 0;
+        - lambda: id(fm_station_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_lift_block) != 1);'
+            then:
+              - delay: 1s
+              - light.turn_off: fm_lift_hill_drive
 
 output:
   - platform: pca9685
@@ -218,9 +323,53 @@ output:
 
 light:
   - platform: monochromatic
-    name: "Motor3"
+    name : "Family Coaster Station Drive"
+    id: fm_station_drive
+    output: hub1_motor1_speed
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - output.set_level:
+          id: hub1_motor1_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor1_rv
+          level: 0%
+    on_turn_off:
+      - output.set_level:
+          id: hub1_motor1_fw
+          level: 0%
+      - output.set_level:
+          id:  hub1_motor1_rv
+          level: 0%
+  
+  - platform: monochromatic
+    name : "Family Coaster Hold Drive"
+    id: fm_lift_hold_drive
+    output: hub1_motor2_speed
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - output.set_level:
+          id: hub1_motor2_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor2_rv
+          level: 0%
+    on_turn_off:
+      - output.set_level:
+          id: hub1_motor2_fw
+          level: 0%
+      - output.set_level:
+          id:  hub1_motor2_rv
+          level: 0%
+
+  - platform: monochromatic
+    name: "Family Coaster Lift Hill Drive"
+    id: fm_lift_hill_drive
     output: hub1_motor3_speed
     default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
     on_turn_on:
       - output.set_level:
           id: hub1_motor3_fw
@@ -239,7 +388,8 @@ light:
   - platform: monochromatic
     name: "Light1"
     output: hub2_motor1_speed
-    default_transition_length: 0s
+    default_transition_length: 4s
+    restore_mode: ALWAYS_OFF
     on_turn_on:
       - output.set_level:
           id: hub2_motor1_fw
@@ -256,137 +406,55 @@ light:
           level: 0%
 
 switch:
-  - platform: template
-    name: "Motor A"
-    id: motor_a
-    #icon: "mdi:chemical-weapon"
-    turn_on_action:
-      # Clockwise direction:
-      - output.set_level:
-          id:  hub1_motor1_fw
-          level: 100%
-      - output.set_level:
-          id:  hub1_motor1_rv
-          level: 0%
-      - delay: 500ms
-      - output.set_level:
-          id: hub1_motor1_speed
-          level: 100%
-      - switch.template.publish:
-          id: motor_a
-          state: ON
-    turn_off_action:
-      - output.set_level: 
-          id: hub1_motor1_fw
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor1_rv
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor1_speed
-          level: 0%
-      - switch.template.publish:
-          id: motor_a
-          state: OFF
+  - platform: restart
+    name: Reset Lego City
 
-# Motor B
+  # turns on automations for the Family Coaster
   - platform: template
-    name: "Motor B"
-    id: motor_b
-    #icon: "mdi:chemical-weapon"
-    turn_on_action:
-      # Clockwise direction:
-      - output.set_level:
-          id:  hub1_motor2_fw
-          level: 100%
-      - output.set_level:
-          id:  hub1_motor2_rv
-          level: 0%
-      - delay: 500ms
-      - output.set_level:
-          id: hub1_motor2_speed
-          level: 100%
-      - switch.template.publish:
-          id: motor_b
-          state: ON
-    turn_off_action:
-      - output.set_level: 
-          id: hub1_motor2_fw
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor2_rv
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor2_speed
-          level: 0%
-      - switch.template.publish:
-          id: motor_b
-          state: OFF
-
-# Motor C
-  - platform: template
-    name: "Motor C"
-    id: motor_c
-    #icon: "mdi:chemical-weapon"
-    turn_on_action:
-      # Clockwise direction:
-      - output.set_level:
-          id:  hub1_motor3_fw
-          level: 100%
-      - output.set_level:
-          id:  hub1_motor3_rv
-          level: 0%
-      - delay: 500ms
-      - output.set_level:
-          id: hub1_motor3_speed
-          level: 100%
-      - switch.template.publish:
-          id: motor_c
-          state: ON
-    turn_off_action:
-      - output.set_level: 
-          id: hub1_motor3_fw
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor3_rv
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor3_speed
-          level: 0%
-      - switch.template.publish:
-          id: motor_c
-          state: OFF
-
-# Motor d
-  - platform: template
-    name: "Motor D"
-    id: motor_d
-    #icon: "mdi:chemical-weapon"
-    turn_on_action:
-      # Clockwise direction:
-      - output.set_level:
-          id:  hub1_motor4_fw
-          level: 100%
-      - output.set_level:
-          id:  hub1_motor4_rv
-          level: 0%
-      - delay: 500ms
-      - output.set_level:
-          id: hub1_motor4_speed
-          level: 100%
-      - switch.template.publish:
-          id: motor_d
-          state: ON
-    turn_off_action:
-      - output.set_level: 
-          id: hub1_motor4_fw
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor4_rv
-          level: 0%
-      - output.set_level: 
-          id: hub1_motor4_speed
-          level: 0%
-      - switch.template.publish:
-          id: motor_d
-          state: OFF
+    name: Family Coaster
+    id: fm_coaster_master
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      #add code to reset block zone variables based on current sensor readings
+      - if:
+          condition:
+            lambda: 'return (id(fm_lift_block) != 1);'
+          then:
+            - light.turn_on: fm_station_drive
+            - delay: 600ms
+            - light.turn_off: fm_station_drive
+      - delay: 1s      
+      - if:
+          condition:
+            lambda: 'return (id(fm_course_block) != 1);'
+          then:
+            - light.turn_on: fm_lift_hill_drive
+            - light.turn_on: fm_lift_hold_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_station_block) != 1);'
+          then:
+            light.turn_on: fm_lift_hill_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_lift_block) != 1);'
+          then:
+            - light.turn_on: fm_station_drive
+            - delay: 600ms
+            - light.turn_off: fm_station_drive
+      - delay: 1s      
+      - if:
+          condition:
+            lambda: 'return (id(fm_course_block) != 1);'
+          then:
+            - light.turn_on: fm_lift_hill_drive
+            - light.turn_on: fm_lift_hold_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_station_block) != 1);'
+          then:
+            light.turn_on: fm_lift_hill_drive
