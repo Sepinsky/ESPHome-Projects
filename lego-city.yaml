@@ -3,16 +3,12 @@ esphome:
   friendly_name: Lego City
   on_boot:
     then:
-      lambda: |-
-        if (id(fm_station_hold).state) {
-          id(fm_station_block) = 1;
-        }
-        if (id(fm_lift_hold).state) {
-          id(fm_lift_block) = 1;
-        }
-        if (id(fm_course_hold).state) {
-          id(fm_course_block) = 1;
-        }  
+      - light.control:
+          id: fm_lift_hold_drive
+          brightness: 82%
+      - light.control:
+          id: fm_lift_hill_drive
+          brightness: 82%
 
 esp32:
   board: esp32dev
@@ -75,6 +71,27 @@ pca9685:
     address: 0x61
     frequency: 50
 
+script:
+  - id: camera_flash
+    mode: single
+    then:
+      #time from exit of sensor to first flash
+      - delay: 350ms
+      - repeat:
+          count: 3
+          then:
+            - output.set_level:
+                id: hub1_motor4_speed
+                #LED runs at 5v max. do not raise level above 81% with a 9v power supply
+                level: 81%
+            #light on time
+            - delay: 30ms
+            - output.set_level:
+                id: hub1_motor4_speed
+                level: 0%
+            #light off time
+            - delay: 60ms
+
 binary_sensor:
   - platform: template
     name: Station Block
@@ -92,7 +109,7 @@ binary_sensor:
     name: Station Hold
     id: fm_station_hold
     pin: 
-      number: GPIO27
+      number: GPIO26
       mode:
         input: True
         pullup: True
@@ -112,7 +129,11 @@ binary_sensor:
                     lambda: 'return (id(fm_lift_block) == 1);'
                   then:
                     delay: 500ms
-              - light.turn_on: fm_station_drive
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_station_hold).state);'
+                  then:
+                    - light.turn_on: fm_station_drive
               - if:
                   condition:
                     lambda: 'return (id(fm_course_block) != 1);'
@@ -123,14 +144,12 @@ binary_sensor:
       then:
         - lambda: id(fm_station_block) = 0;
         - lambda: id(fm_lift_block) = 1;
-        - delay: 600ms
-        - light.turn_off: fm_station_drive
         
   - platform: gpio
     name: Lift Hold
     id: fm_lift_hold
     pin: 
-      number: GPIO13
+      number: GPIO25
       mode:
         input: True
         pullup: True
@@ -140,6 +159,7 @@ binary_sensor:
     on_press:
       then:
         - lambda: id(fm_lift_block) = 1;
+        - light.turn_off: fm_station_drive
         - if:
             condition:
               lambda: 'return (id(fm_coaster_master).state);'
@@ -162,7 +182,7 @@ binary_sensor:
     name: Course Hold
     id: fm_course_hold
     pin: 
-      number: GPIO14
+      number: GPIO27
       mode:
         input: True
         pullup: True
@@ -193,6 +213,7 @@ binary_sensor:
       then:
         - lambda: id(fm_course_block) = 0;
         - lambda: id(fm_station_block) = 1;
+        - script.execute: camera_flash
         - if:
             condition:
               lambda: 'return (id(fm_lift_block) != 1);'
@@ -385,30 +406,32 @@ light:
           id:  hub1_motor3_rv
           level: 0%
 
-  - platform: monochromatic
-    name: "Light1"
-    output: hub2_motor1_speed
-    default_transition_length: 4s
-    restore_mode: ALWAYS_OFF
-    on_turn_on:
-      - output.set_level:
-          id: hub2_motor1_fw
-          level: 100%
-      - output.set_level:
-          id:  hub2_motor1_rv
-          level: 0%
-    on_turn_off:
-      - output.set_level:
-          id: hub2_motor1_fw
-          level: 0%
-      - output.set_level:
-          id:  hub2_motor1_rv
-          level: 0%
-
 switch:
   - platform: restart
     name: Reset Lego City
 
+  - platform: template
+    name: "Flash"
+    id: flash
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - output.set_level:
+          id: hub1_motor4_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor4_rv
+          level: 0%
+      - script.execute: camera_flash
+    on_turn_off:
+      - output.set_level:
+          id: hub1_motor4_fw
+          level: 0%
+      - output.set_level:
+          id:  hub1_motor4_rv
+          level: 0%
+      - script.stop: camera_flash
+    
   # turns on automations for the Family Coaster
   - platform: template
     name: Family Coaster
@@ -416,13 +439,34 @@ switch:
     optimistic: True
     restore_mode: ALWAYS_OFF
     on_turn_on:
-      #add code to reset block zone variables based on current sensor readings
+      - lambda: |-
+          if (id(fm_station_hold).state) {
+            id(fm_station_block) = 1;
+          } else {
+            id(fm_station_block) = 0;
+          }
+          if (id(fm_lift_hold).state) {
+            id(fm_lift_block) = 1;
+          } else {
+            id(fm_lift_block) = 0;
+          }
+          if (id(fm_course_hold).state) {
+            id(fm_course_block) = 1;
+          } else {
+            id(fm_course_block) = 0;
+          }
+      - output.set_level:
+          id: hub1_motor4_fw
+          level: 100%
+      - output.set_level:
+          id:  hub1_motor4_rv
+          level: 0%
       - if:
           condition:
             lambda: 'return (id(fm_lift_block) != 1);'
           then:
             - light.turn_on: fm_station_drive
-            - delay: 600ms
+            - delay: 2.5s
             - light.turn_off: fm_station_drive
       - delay: 1s      
       - if:
@@ -443,7 +487,7 @@ switch:
             lambda: 'return (id(fm_lift_block) != 1);'
           then:
             - light.turn_on: fm_station_drive
-            - delay: 600ms
+            - delay: 2.5s
             - light.turn_off: fm_station_drive
       - delay: 1s      
       - if:
@@ -458,3 +502,10 @@ switch:
             lambda: 'return (id(fm_station_block) != 1);'
           then:
             light.turn_on: fm_lift_hill_drive
+    on_turn_off:
+      - output.set_level:
+          id: hub1_motor4_fw
+          level: 0%
+      - output.set_level:
+          id:  hub1_motor4_rv
+          level: 0%
