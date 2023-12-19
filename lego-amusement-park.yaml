@@ -1,0 +1,148 @@
+esphome:
+  name: lego-park
+  friendly_name: Lego Amusement Park
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret lego-park-api-key
+
+ota:
+  password: !secret lego-park-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Lego-Amusement-Park"
+    password: !secret lego-park-ap-pass
+
+captive_portal:
+    
+switch:
+  - platform: restart
+    name: Reset Lego Amusement Park
+  
+  - platform: template
+    name: Carousel
+    id: carousel
+    optimistic: True
+    on_turn_on:
+      - light.turn_on: carousel_white_lights
+      - delay: 10s
+      - light.turn_off: carousel_white_lights
+      - while:
+          condition:
+            switch.is_on: carousel
+          then:
+            - light.turn_on: carousel_motor
+            - delay: 60s
+            - light.turn_off: carousel_motor
+            - light.turn_on: carousel_white_lights
+            - delay: 10s
+            - light.turn_off: carousel_white_lights
+
+  - platform: template
+    name: UFO Ride
+    id: ufo_ride
+    optimistic: True
+    on_turn_on:
+      - while:
+          condition:
+            switch.is_on: ufo_ride
+          then:
+            - light.turn_on: ufo_ride_motor
+            - delay: 45s
+            - light.turn_off: ufo_ride_motor
+            - delay: 10s
+
+  - platform: template
+    name: Ferris Wheel
+    id: ferris_wheel
+    optimistic: True
+    on_turn_on:
+      - while:
+          condition:
+            switch.is_on: ferris_wheel
+          then:
+            - light.turn_on: ferris_wheel_motor
+            - delay: 90s
+            - light.turn_off: ferris_wheel_motor
+            - delay: 10s
+
+light:
+  - platform: monochromatic
+    name: "Carousel White Lights"
+    id: carousel_white_lights
+    output: carousel_white_lights_out
+    default_transition_length: 2s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Carousel Colored Lights"
+    id: carousel_colored_lights
+    output: carousel_color_lights_out
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+  
+  - platform: monochromatic
+    name: "Carousel Motor"
+    id: carousel_motor
+    output: carousel_motor_out
+    default_transition_length: 2s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "UFO Ride Motor"
+    id: ufo_ride_motor
+    output: ufo_motor_out
+    default_transition_length: 4s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Ferris Wheel Motor"
+    id: ferris_wheel_motor
+    output: ferris_motor_out
+    default_transition_length: 2s
+    restore_mode: ALWAYS_OFF
+
+output:
+  - platform: ledc
+    pin: GPIO26
+    id: carousel_motor_out
+    max_power: 0.95
+  
+  - platform: ledc
+    pin: GPIO25
+    id: ufo_motor_out
+    max_power: 0.80
+  
+  - platform: ledc
+    pin: GPIO27
+    id: ferris_motor_out
+    max_power: 0.75
+
+  - platform: ledc
+    pin: GPIO14
+    id: spare_out
+#    max_power: 0.60
+
+  - platform: ledc
+    pin: GPIO13
+    id: carousel_white_lights_out
+
+  - platform: ledc
+    pin: GPIO12
+    id: carousel_color_lights_out
