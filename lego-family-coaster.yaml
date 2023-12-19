@@ -1,0 +1,336 @@
+esphome:
+  name: "lego-family-coaster"
+  friendly_name: Lego Family Coaster
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret lego-fam-coaster-api-key
+
+ota:
+  password: !secret lego-fam-coaster-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Lego-City"
+    password: !secret lego-fam-coaster-ap-pass
+
+captive_portal:
+
+# Station Hold Sensor GPIO26
+# Lift Hold Sensor GPIO25
+# Lift Hill Exit (Course Hold) Sensor GPIO27
+# Station Motor GPIO18
+# Lift Hold Motor GPIO5
+# Lift Hill Motor GPIO19
+# Camera Flash GPIO21
+
+globals:
+  #Store block one data for each zone
+  - id: fm_station_block
+    type: int
+    restore_value: no
+    initial_value: '0'
+  
+  - id: fm_lift_block
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: fm_course_block
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+script:
+  - id: camera_flash
+    mode: single
+    then:
+      #time from exit of sensor to first flash
+      - delay: 350ms
+      - repeat:
+          count: 3
+          then:
+            - light.turn_on: fm_coaster_flash
+            #light on time
+            - delay: 30ms
+            - light.turn_off: fm_coaster_flash
+            - delay: 60ms
+
+binary_sensor:
+  - platform: template
+    name: Station Block
+    lambda: 'return (id(fm_station_block) == 1);'
+
+  - platform: template
+    name: Lift Block
+    lambda: 'return (id(fm_lift_block) == 1);'
+
+  - platform: template
+    name: Course Block
+    lambda: 'return (id(fm_course_block) == 1);'
+
+  - platform: gpio
+    name: Station Hold
+    id: fm_station_hold
+    pin: 
+      number: GPIO26
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      - delayed_off: 200ms
+    on_press:
+      then:
+        - light.turn_off: fm_station_drive
+        - lambda: id(fm_station_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - delay: 5s
+              - while:
+                  condition:
+                    lambda: 'return (id(fm_lift_block) == 1);'
+                  then:
+                    delay: 500ms
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_station_hold).state);'
+                  then:
+                    - light.turn_on:
+                        id: fm_station_drive
+                        brightness: 100%
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_course_block) != 1);'
+                  then:
+                    - light.turn_on: fm_lift_hill_drive
+                    - light.turn_on: fm_lift_hold_drive
+    on_release:
+      then:
+        - lambda: id(fm_station_block) = 0;
+        - lambda: id(fm_lift_block) = 1;
+        
+  - platform: gpio
+    name: Lift Hold
+    id: fm_lift_hold
+    pin: 
+      number: GPIO25
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      - delayed_off: 200ms
+    on_press:
+      then:
+        - lambda: id(fm_lift_block) = 1;
+        - light.turn_off: fm_station_drive
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - while:
+                  condition:
+                    lambda: 'return (id(fm_course_block) == 1);'
+                  then:
+                    delay: 500ms
+              - light.turn_on: fm_lift_hill_drive
+              - light.turn_on: fm_lift_hold_drive
+    on_release:
+      then:
+        - lambda: id(fm_lift_block) = 0;
+        - lambda: id(fm_course_block) = 1;
+        - delay: 1s
+        - light.turn_off: fm_lift_hold_drive
+
+  - platform: gpio
+    name: Course Hold
+    id: fm_course_hold
+    pin: 
+      number: GPIO27
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      - delayed_off: 200ms
+    on_press:
+      then:
+        - lambda: id(fm_course_block) = 1;
+        - if:
+            condition:
+              lambda: 'return (id(fm_coaster_master).state);'
+            then:
+              - if:
+                  condition:
+                    lambda: 'return (id(fm_station_block) == 1);'
+                  then:
+                    - light.turn_off: fm_lift_hill_drive
+                    - while:
+                       condition:
+                         lambda: 'return (id(fm_station_block) == 1);'
+                       then:
+                         delay: 500ms
+              - light.turn_on: fm_lift_hill_drive
+            else:
+              light.turn_off: fm_lift_hill_drive
+    on_release:
+      then:
+        - lambda: id(fm_course_block) = 0;
+        - lambda: id(fm_station_block) = 1;
+        - script.execute: camera_flash
+        - if:
+            condition:
+              lambda: 'return (id(fm_lift_block) != 1);'
+            then:
+              - delay: 1s
+              - light.turn_off: fm_lift_hill_drive
+        - delay: 3.5s
+        - light.turn_on:
+            id: fm_station_drive
+            brightness: 55%
+
+output:
+  - platform: ledc
+    pin: GPIO18
+    id: fm_coaster_motor1
+  
+  - platform: ledc
+    pin: GPIO5
+    id: fm_coaster_motor2
+    max_power: 0.75
+  
+  - platform: ledc
+    pin: GPIO19
+    id: fm_coaster_motor3
+    max_power: 0.50
+
+  - platform: ledc
+    pin: GPIO21
+    id: fm_coaster_motor4
+    max_power: 0.55
+
+light:
+  - platform: monochromatic
+    name: "Flash"
+    id: fm_coaster_flash
+    output: fm_coaster_motor4
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Family Coaster Station Drive"
+    id: fm_station_drive
+    output: fm_coaster_motor1
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+  
+  - platform: monochromatic
+    name : "Family Coaster Hold Drive"
+    id: fm_lift_hold_drive
+    output: fm_coaster_motor2
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Family Coaster Lift Hill Drive"
+    id: fm_lift_hill_drive
+    output: fm_coaster_motor3
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+switch:
+  - platform: restart
+    name: Reset Lego City
+
+  - platform: template
+    name: "Flash Test"
+    id: flash
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - script.execute: camera_flash
+    on_turn_off:
+      - script.stop: camera_flash
+    
+  # turns on automations for the Family Coaster
+  - platform: template
+    name: Family Coaster
+    id: fm_coaster_master
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - lambda: |-
+          if (id(fm_station_hold).state) {
+            id(fm_station_block) = 1;
+          } else {
+            id(fm_station_block) = 0;
+          }
+          if (id(fm_lift_hold).state) {
+            id(fm_lift_block) = 1;
+          } else {
+            id(fm_lift_block) = 0;
+          }
+          if (id(fm_course_hold).state) {
+            id(fm_course_block) = 1;
+          } else {
+            id(fm_course_block) = 0;
+          }
+      - if:
+          condition:
+            lambda: 'return (id(fm_lift_block) != 1);'
+          then:
+            - light.turn_on: fm_station_drive
+            - delay: 2.5s
+            - light.turn_off: fm_station_drive
+      - delay: 1s      
+      - if:
+          condition:
+            lambda: 'return (id(fm_course_block) != 1);'
+          then:
+            - light.turn_on: fm_lift_hill_drive
+            - light.turn_on: fm_lift_hold_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_station_block) != 1);'
+          then:
+            light.turn_on: fm_lift_hill_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_lift_block) != 1);'
+          then:
+            - light.turn_on: fm_station_drive
+            - delay: 2.5s
+            - light.turn_off: fm_station_drive
+      - delay: 1s      
+      - if:
+          condition:
+            lambda: 'return (id(fm_course_block) != 1);'
+          then:
+            - light.turn_on: fm_lift_hill_drive
+            - light.turn_on: fm_lift_hold_drive
+      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return (id(fm_station_block) != 1);'
+          then:
+            light.turn_on: fm_lift_hill_drive
