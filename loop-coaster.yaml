@@ -1,0 +1,214 @@
+esphome:
+  name: loop-coaster
+  friendly_name: Loop Coaster
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret lego-loop-coaster-api-key
+
+ota:
+  password: !secret lego-loop-coaster-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Loop-Coaster Fallback Hotspot"
+    password: !secret lego-loop-coaster-ap-pass
+
+captive_portal:
+
+# Station Sensor GPIO13
+# Lift Bottom Sensor GPIO14
+# Lift Top Sensor GPIO13
+# Station Motor GPIO25
+# Lift Motor Forward GPIO26
+# Lift Motor Reverse GPIO27
+# Camera Flash GPIO16
+# Lighting GPIO4
+
+#globals:
+  #Store block one data for each zone
+#  - id: loop_station_block
+#    type: int
+#    restore_value: no
+#    initial_value: '0'
+  
+#  - id: loop_lift_block
+#    type: int
+#    restore_value: no
+#    initial_value: '0'
+
+script:
+  - id: camera_flash
+    mode: single
+    then:
+      #time from exit of sensor to first flash
+      - delay: 2000ms
+      - repeat:
+          count: 3
+          then:
+            - light.turn_on: loop_coaster_flash
+            #light on time
+            - delay: 30ms
+            - light.turn_off: loop_coaster_flash
+            - delay: 60ms
+
+binary_sensor:
+#  - platform: template
+#    name: Station Block
+#    lambda: 'return (id(loop_station_block) == 1);'
+
+#  - platform: template
+#    name: Lift Block
+#    lambda: 'return (id(loop_lift_block) == 1);'
+
+  - platform: gpio
+    name: Station
+    id: loop_station
+    pin: 
+      number: GPIO13
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      #- delayed_off: 200ms
+    on_press:
+      then:
+#        - lambda: id(loop_station_block) = 1;
+        - light.turn_on: loop_station_motor
+        - delay: 1s
+        - light.turn_off: loop_station_motor
+        - if:
+            condition:
+              lambda: 'return (id(loop_coaster_master).state);'
+            then:
+              - delay: 1s
+              - light.turn_on: loop_lift_motor_rv
+#    on_release:
+#      then:
+#        - lambda: id(loop_station_block) = 0;
+#        - lambda: id(loop_lift_block) = 1;
+
+  - platform: gpio
+    name: "Lift Bottom"
+    id: loop_lift_bottom
+    pin:
+      number: GPIO14
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      - light.turn_off: loop_lift_motor_rv
+      - delay: 2s
+      - light.turn_on: loop_lift_motor_fw
+
+
+  - platform: gpio
+    name: "Lift Top"
+    id: loop_lift_top
+    pin: 
+      number: GPIO12
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    filters:
+      #- delayed_off: 200ms
+    on_press:
+      then:
+#        - delay: 500ms
+        - light.turn_off: loop_lift_motor_fw
+        - script.execute: camera_flash
+        
+output:
+  - platform: ledc
+    pin: GPIO26
+    id: loop_coaster_motor1_fw
+    max_power: 0.65
+  
+  - platform: ledc
+    pin: GPIO27
+    id: loop_coaster_motor1_rv
+    max_power: 0.55
+  
+  - platform: ledc
+    pin: GPIO25
+    id: loop_coaster_motor2
+    max_power: 0.40
+
+  - platform: ledc
+    pin: GPIO16
+    id: loop_coaster_flash_out
+    max_power: 0.60
+
+  - platform: ledc
+    pin: GPIO4
+    id: loop_coaster_lights_out
+   # max_power: 0.60
+  
+
+light:
+  - platform: monochromatic
+    name: "Station Motor"
+    id: loop_station_motor
+    output: loop_coaster_motor2
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Lift Motor FW"
+    id: loop_lift_motor_fw
+    output: loop_coaster_motor1_fw
+    default_transition_length: 1s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Lift Motor RV"
+    id: loop_lift_motor_rv
+    output: loop_coaster_motor1_rv
+    default_transition_length: 1s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Flash"
+    id: loop_coaster_flash
+    output: loop_coaster_flash_out
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Lighting"
+    id: loop_coaster_lights
+    output: loop_coaster_lights_out
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+switch:
+  - platform: restart
+    name: Reset Loop Coaster
+    
+  # turns on automations for the Family Coaster
+  - platform: template
+    name: Loop Coaster
+    id: loop_coaster_master
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      light.turn_on: loop_lift_motor_rv
+    
