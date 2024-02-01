@@ -144,7 +144,7 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     timeout: 30s
-    internal_filter: 1.5ms
+    internal_filter: 10ms
     pin:
       number: GPIO27
       mode:
@@ -153,6 +153,10 @@ sensor:
       inverted: True
     filters:
       - multiply: 0.5
+      - clamp:
+          min_value: 0
+          max_value: 200
+          ignore_out_of_range: true
 
 binary_sensor:
   - platform: analog_threshold
@@ -338,7 +342,7 @@ number:
           then:
             - light.turn_on: motor_rv
             - wait_until:
-                lambda: 'return ((id(res_level).state) == x);'
+                lambda: 'return ((id(res_level).state) <= x);'
             - light.turn_off: motor_rv
           else:
             if:
@@ -347,5 +351,5 @@ number:
               then:
                 - light.turn_on: motor_fw
                 - wait_until:
-                    lambda: 'return ((id(res_level).state) == x);'
+                    lambda: 'return ((id(res_level).state) >= x);'
                 - light.turn_off: motor_fw
