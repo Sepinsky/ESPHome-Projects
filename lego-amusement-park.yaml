@@ -1,6 +1,10 @@
-esphome:
-  name: lego-park
+substitutions:
+  device_name: lego-park
   friendly_name: Lego Amusement Park
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -15,10 +19,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret lego-park-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret lego-park-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -26,8 +30,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Lego-Amusement-Park"
-    password: !secret lego-park-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
     
@@ -81,6 +84,15 @@ switch:
             - delay: 90s
             - light.turn_off: ferris_wheel_motor
             - delay: 10s
+
+  - platform: template
+    name: Carousel Lighting
+    id: carousel_lighting
+    optimistic: True
+    on_turn_on:
+      light.turn_on: carousel_colored_lights
+    on_turn_off:
+      light.turn_off: carousel_colored_lights
 
 light:
   - platform: monochromatic
