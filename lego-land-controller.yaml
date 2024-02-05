@@ -1,6 +1,10 @@
-esphome:
-  name: lego-land-controller
+substitutions:
+  device_name: lego-land-controller
   friendly_name: Lego Land Controller
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -9,21 +13,16 @@ esp32:
     sdkconfig_options:
       COMPILER_OPTIMIZATION_SIZE: y
 
-#esp32:
-#  board: esp32dev
-#  framework:
-#    type: arduino
-
 # Enable logging
 logger:
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret lego-controller-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret lego-controller-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -31,14 +30,13 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Lego-Land-Controller"
-    password: !secret lego-controller-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
     
 switch:
   - platform: restart
-    name: Reset Lego Land Controller
+    name: ${friendly_name} Reset
 
   - platform: template
     id: all_device_control
