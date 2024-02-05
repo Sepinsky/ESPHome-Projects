@@ -1,6 +1,10 @@
-esphome:
-  name: exercise-bike
+substitutions:
+  device_name: exercise-bike
   friendly_name: Exercise Bike
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -15,10 +19,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret lego-controller-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret lego-controller-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -26,8 +30,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Exercise-Bike Fallback Hotspot"
-    password: !secret lego-controller-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
     
