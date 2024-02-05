@@ -1,9 +1,11 @@
-esphome:
-  name: garage-doors
-  friendly_name: Garage Doors
-
 substitutions:
   disp_name: garage
+  device_name: garage-doors
+  friendly_name: Garage Doors
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -18,10 +20,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret garage-door-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret garage-door-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -29,8 +31,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Garage-Doors Fallback Hotspot"
-    password: !secret garage-door-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
 
@@ -50,6 +51,7 @@ switch:
       inverted: True
     id: relay2
     restore_mode: ALWAYS_OFF 
+    
   - platform: restart
     name: ${disp_name} Restart
 
@@ -74,7 +76,6 @@ binary_sensor:
       - delayed_off: 100ms
     id: reed_switch2
     internal: true
-
     
 cover:
   - platform: template
