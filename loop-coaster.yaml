@@ -1,6 +1,10 @@
-esphome:
-  name: loop-coaster
+substitutions:
+  device_name: loop-coaster
   friendly_name: Loop Coaster
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -15,10 +19,11 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret lego-loop-coaster-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret lego-loop-coaster-ota-pass
+#  id: my_ota
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -26,8 +31,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Loop-Coaster Fallback Hotspot"
-    password: !secret lego-loop-coaster-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
 
@@ -39,18 +43,6 @@ captive_portal:
 # Lift Motor Reverse GPIO27
 # Camera Flash GPIO16
 # Lighting GPIO4
-
-#globals:
-  #Store block one data for each zone
-#  - id: loop_station_block
-#    type: int
-#    restore_value: no
-#    initial_value: '0'
-  
-#  - id: loop_lift_block
-#    type: int
-#    restore_value: no
-#    initial_value: '0'
 
 script:
   - id: camera_flash
@@ -68,13 +60,6 @@ script:
             - delay: 60ms
 
 binary_sensor:
-#  - platform: template
-#    name: Station Block
-#    lambda: 'return (id(loop_station_block) == 1);'
-
-#  - platform: template
-#    name: Lift Block
-#    lambda: 'return (id(loop_lift_block) == 1);'
 
   - platform: gpio
     name: Station
@@ -89,7 +74,6 @@ binary_sensor:
       #- delayed_off: 200ms
     on_press:
       then:
-#        - lambda: id(loop_station_block) = 1;
         - light.turn_on: loop_station_motor
         - delay: 1s
         - light.turn_off: loop_station_motor
@@ -99,10 +83,6 @@ binary_sensor:
             then:
               - delay: 1s
               - light.turn_on: loop_lift_motor_rv
-#    on_release:
-#      then:
-#        - lambda: id(loop_station_block) = 0;
-#        - lambda: id(loop_lift_block) = 1;
 
   - platform: gpio
     name: "Lift Bottom"
@@ -117,7 +97,6 @@ binary_sensor:
       - light.turn_off: loop_lift_motor_rv
       - delay: 2s
       - light.turn_on: loop_lift_motor_fw
-
 
   - platform: gpio
     name: "Lift Top"
@@ -162,7 +141,6 @@ output:
     id: loop_coaster_lights_out
    # max_power: 0.60
   
-
 light:
   - platform: monochromatic
     name: "Station Motor"
@@ -202,6 +180,15 @@ light:
 switch:
   - platform: restart
     name: Reset Loop Coaster
+  
+  - platform: template
+    name: Loop Coaster Lighting
+    id: Loop_coaster_lighting
+    optimistic: True
+    on_turn_on:
+      light.turn_on: loop_coaster_lights
+    on_turn_off:
+      light.turn_off: loop_coaster_lights
     
   # turns on automations for the Family Coaster
   - platform: template
