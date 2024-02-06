@@ -11,6 +11,9 @@ esphome:
       # remove block below after next update installation. this updates the ota password to the common standard, but only needs to be done once. update ota section to match
       - lambda: |-
           id(my_ota).set_auth_password("620069f03c2f8451f595ad1e3b653d19");
+      # value of 0 means there is no stored state for light colors,
+      # we don't know what color setting the hardware has stored
+      # and lights should be reset to known defaults
       - lambda: |-
           if (id(color_fountains) == 0) {
             id(reset_light_fountains).press();
@@ -48,12 +51,12 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    password: !secret pool-controller-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
 
 dallas:
-  - pin: GPIO23
+  - pin: GPIO23 # pin used for temp sensors
 
 globals:
   # store color setting for fountains
@@ -127,9 +130,6 @@ sensor:
     name: "Controller Temp"
     id: 'controller_temp'
     filters:
-      #- calibrate_linear:
-      #  - 0.0 -> 0.0
-      #  - 21.6 -> 20.6
       - sliding_window_moving_average:
           window_size: 10
           send_every: 1
@@ -159,6 +159,7 @@ sensor:
     unit_of_measurement: "PSI"
     accuracy_decimals: 1
     id: 'filter_pressure'
+    # update filters with info from filtering excersise bike. this might make readings more accurate
     update_interval: 5s
     filters:
       - calibrate_linear:
