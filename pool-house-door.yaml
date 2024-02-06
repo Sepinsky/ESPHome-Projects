@@ -1,9 +1,11 @@
-esphome:
-  name: pool-house-door
-  friendly_name: Pool House Door
-
 substitutions:
   disp_name: Garage
+  device_name: pool-house-door
+  friendly_name: Pool House Door
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp32:
   board: esp32dev
@@ -18,10 +20,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret pool-house-door-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret pool-house-door-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -29,8 +31,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Pool-House-Door Fallback Hotspot"
-    password: !secret pool-house-door-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
 

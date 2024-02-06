@@ -1,5 +1,10 @@
+substitutions:
+  device_name: master-bed-fan
+  friendly_name: Master Bedroom Fan
+  
 esphome:
-  name: master-bed-fan
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
 esp8266:
   board: esp01_1m
@@ -11,10 +16,12 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret master-bed-fan-api-key
+#    key: !secret mj-fc-01-master-bed-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret master-bed-fan-ota-pass
+#  password: !secret mj-fc-01-master-bed-ota-pass
+  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -22,8 +29,8 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Master-Bed-Fan Fallback Hotspot"
-    password: !secret master-bed-fan-ap-pass
+    password: !secret ap-pass
+#    password: !secret mj-fc-01-master-bed-ap-pass
 
 captive_portal:
 

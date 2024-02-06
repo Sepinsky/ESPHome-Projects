@@ -1,0 +1,119 @@
+esphome:
+  name: front-porch
+  friendly_name: Front Porch
+  on_boot:
+    light.turn_on: power_led
+  
+substitutions:
+  disp_name: Front Porch
+
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret front-porch-api-key
+
+ota:
+  password: !secret front-porch-ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Front-Porch Fallback Hotspot"
+    password: !secret front-porch-ap-pass
+
+captive_portal:
+    
+binary_sensor:
+  - platform: status
+    name: ${disp_name} Status
+  
+  - platform: gpio
+    id: button
+    pin:
+      number: GPIO13
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      - if:
+          condition:
+            lambda: |-
+              if (id(plug1).state || id(plug2).state) {
+                return true;
+              } else {
+                return false;
+              }
+          then:
+            - switch.turn_off: plug1
+            - switch.turn_off: plug2
+          else:
+            - switch.turn_on: plug1
+            - switch.turn_on: plug2
+
+output:
+  - platform: esp8266_pwm
+    id: led1
+    pin:
+      number: GPIO4
+      inverted: True
+
+  - platform: esp8266_pwm
+    id: led2
+    pin:
+      number: GPIO5
+      inverted: True
+
+light:
+  - platform: monochromatic
+    id: power_led
+    output: led2
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: status_led
+    output: led1
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+switch:
+  - platform: gpio
+    name: ${disp_name} Plug 1
+    id: plug1
+    pin: GPIO12
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      light.turn_on: status_led
+    on_turn_off:
+      - if:
+          condition:
+            switch.is_on: plug2
+          then:
+          else:
+            light.turn_off: status_led
+
+  - platform: gpio
+    name: ${disp_name} Plug 2
+    id: plug2
+    pin: GPIO14
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      light.turn_on: status_led
+    on_turn_off:
+      - if:
+          condition:
+            switch.is_on: plug1
+          then:
+          else:
+            light.turn_off: status_led
+            

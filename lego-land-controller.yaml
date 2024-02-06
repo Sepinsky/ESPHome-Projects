@@ -1,0 +1,392 @@
+substitutions:
+  device_name: lego-land-controller
+  friendly_name: Lego Land Controller
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api-key
+
+ota:
+  password: !secret ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    password: !secret ap-pass
+
+captive_portal:
+    
+switch:
+  - platform: restart
+    name: ${friendly_name} Reset
+
+  - platform: template
+    id: all_device_control
+    optimistic: True
+    lambda: |-
+      if (id(lego_land_light).current_values.is_on() || id(fam_coaster_light).current_values.is_on() || id(loop_coaster_light).current_values.is_on() || id(carousel_light).current_values.is_on() || id(ufo_ride_light).current_values.is_on() || id(ferris_wheel_light).current_values.is_on() || id(lighthouse_light).current_values.is_on() || id(wind_turbine_light).current_values.is_on()) {
+        return true;
+      } else {
+        return false;
+      }
+    on_turn_on:
+      light.turn_on: all_light
+    on_turn_off:
+      light.turn_off: all_light
+
+light:
+  - platform: monochromatic
+    id: all_light
+    output: light1_out
+    restore_mode: ALWAYS_OFF
+  
+  - platform: monochromatic
+    id: lego_land_light
+    output: light2_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: fam_coaster_light
+    output: light3_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: loop_coaster_light
+    output: light4_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: table_lights
+    output: light5_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: carousel_light
+    output: light6_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: ufo_ride_light
+    output: light7_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: ferris_wheel_light
+    output: light8_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: lighthouse_light
+    output: light9_out
+    restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    id: wind_turbine_light
+    output: light10_out
+    restore_mode: ALWAYS_OFF
+
+binary_sensor:
+  - platform: gpio
+    name: All On/Off
+    id: all_on_off_button
+    pin: 
+      number: GPIO15
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        if:
+          condition:
+            light.is_on: all_light
+          then:
+            - homeassistant.event:
+                event: esphome.lego_land_all_off
+          else:
+            - homeassistant.event:
+                event: esphome.lego_land_all_on
+
+  - platform: gpio
+    name: Lego Land Lighting
+    id: lego_land_lighting
+    pin: 
+      number: GPIO22
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_land_lights
+  
+  - platform: gpio
+    name: Lego Family Coaster
+    id: fam_coaster
+    pin: 
+      number: GPIO4
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_fam_coaster
+  
+  - platform: gpio
+    name: Lego Loop Coaster
+    id: loop_coaster
+    pin: 
+      number: GPIO16
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_loop_coaster
+
+  - platform: gpio
+    name: Lego Table Lights
+    id: lego_table_lights
+    pin: 
+      number: GPIO17
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_table_lights
+
+  - platform: gpio
+    name: Lego Carousel
+    id: lego_carousel
+    pin: 
+      number: GPIO5
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_carousel
+
+  - platform: gpio
+    name: Lego UFO Ride
+    id: ufo_ride
+    pin: 
+      number: GPIO18
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_ufo_ride
+
+  - platform: gpio
+    name: Lego Ferris Wheel
+    id: ferris_wheel
+    pin: 
+      number: GPIO19
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_ferris_wheel
+
+  - platform: gpio
+    name: Lego Lighthouse
+    id: lighthouse
+    pin: 
+      number: GPIO21
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_lighthouse
+
+  - platform: gpio
+    name: Lego Wind Turbine
+    id: wind_turbine
+    pin: 
+      number: GPIO3
+      mode:
+        input: True
+        pullup: True
+      inverted: True
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.toggle_lego_wind_turbine
+
+  - platform: homeassistant
+    id: lego_land_lights_state
+    publish_initial_state: True
+    entity_id: light.lego_land_lighting
+    on_press:
+      then:
+        - light.turn_on: lego_land_light
+    on_release:
+      then:
+        light.turn_off: lego_land_light
+
+  - platform: homeassistant
+    id: lego_fam_coaster_state
+    publish_initial_state: True
+    entity_id: switch.lego_city_family_coaster_2
+    on_press:
+      then:
+        - light.turn_on: fam_coaster_light
+    on_release:
+      then:
+        light.turn_off: fam_coaster_light
+
+  - platform: homeassistant
+    id: lego_loop_coaster_state
+    publish_initial_state: True
+    entity_id: switch.loop_coaster_loop_coaster
+    on_press:
+      then:
+        - light.turn_on: loop_coaster_light
+    on_release:
+      then:
+        light.turn_off: loop_coaster_light
+
+  - platform: homeassistant
+    id: lego_table_light_state
+    publish_initial_state: True
+    entity_id: light.lego_table_lights
+    on_press:
+      then:
+        - light.turn_on: table_lights
+    on_release:
+      then:
+        light.turn_off: table_lights
+
+  - platform: homeassistant
+    id: lego_carousel_state
+    publish_initial_state: True
+    entity_id: switch.lego_park_carousel
+    on_press:
+      then:
+        - light.turn_on: carousel_light
+    on_release:
+      then:
+        light.turn_off: carousel_light
+
+  - platform: homeassistant
+    id: lego_ufo_ride_state
+    publish_initial_state: True
+    entity_id: switch.lego_park_ufo_ride
+    on_press:
+      then:
+        - light.turn_on: ufo_ride_light
+    on_release:
+      then:
+        light.turn_off: ufo_ride_light
+
+  - platform: homeassistant
+    id: lego_ferris_wheel_state
+    publish_initial_state: True
+    entity_id: switch.lego_park_ferris_wheel
+    on_press:
+      then:
+        - light.turn_on: ferris_wheel_light
+    on_release:
+      then:
+        light.turn_off: ferris_wheel_light
+
+  - platform: homeassistant
+    id: lego_lighthouse_state
+    publish_initial_state: True
+    entity_id: switch.lego_lighthouse
+    on_press:
+      then:
+        - light.turn_on: lighthouse_light
+    on_release:
+      then:
+        light.turn_off: lighthouse_light
+
+  - platform: homeassistant
+    id: lego_wind_turbine_state
+    publish_initial_state: True
+    entity_id: switch.lego_wind_turbine
+    on_press:
+      then:
+        - light.turn_on: wind_turbine_light
+    on_release:
+      then:
+        light.turn_off: wind_turbine_light
+
+output:
+  - platform: ledc
+    pin: GPIO1
+    id: light1_out
+
+  - platform: ledc
+    pin: GPIO2
+    id: light2_out
+  
+  - platform: ledc
+    pin: GPIO23
+    id: light3_out
+
+  - platform: ledc
+    pin: GPIO13
+    id: light4_out
+
+  - platform: ledc
+    pin: GPIO12
+    id: light5_out
+
+  - platform: ledc
+    pin: GPIO14
+    id: light6_out
+
+  - platform: ledc
+    pin: GPIO27
+    id: light7_out
+
+  - platform: ledc
+    pin: GPIO26
+    id: light8_out
+
+  - platform: ledc
+    pin: GPIO25
+    id: light9_out
+
+  - platform: ledc
+    pin: GPIO33
+    id: light10_out
