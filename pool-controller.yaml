@@ -1,9 +1,16 @@
-esphome:
-  name: "pool-controller"
+substitutions:
+  device_name: pool-controller
   friendly_name: Pool Controller
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
   on_boot:
     priority: -100
     then: #check if restore of previous light color failed. if so run reset lights to default
+      # remove block below after next update installation. this updates the ota password to the common standard, but only needs to be done once. update ota section to match
+      - lambda: |-
+          id(my_ota).set_auth_password("620069f03c2f8451f595ad1e3b653d19");
       - lambda: |-
           if (id(color_fountains) == 0) {
             id(reset_light_fountains).press();
@@ -28,10 +35,12 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret pool-controller-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret pool-controller-ota-pass
+  id: my_ota # remove after next update install
+  password: !secret pool-controller-ota-pass # remove after next update install and uncomment line below
+  #  password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -39,7 +48,6 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Pool-Controller Fallback Hotspot"
     password: !secret pool-controller-ap-pass
 
 captive_portal:
