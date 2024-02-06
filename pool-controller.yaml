@@ -1201,7 +1201,10 @@ switch:
         return true;
       }
     on_turn_off:
-      #check if heat is called for when comming out of lockout and delay 15 minutes if so to allow time for temp sensors to stabilize
+      # Delay 15 minutes when coming out of lockout to allow temp sensors to stabilize
+      # After delay check if heat is called for and activate if so.
+      # this is needed thermostate will only "switch on" once as temp passes threshold 
+      # and if state is locked out we ignore that initial command
       - delay: 15min
       - if:
           condition:
@@ -1226,7 +1229,7 @@ switch:
       }
     turn_on_action:
       - if:
-          condition: #check if we are in lockout state
+          condition: #check if we are in lockout state (pump off)
             switch.is_on: heat_lock
           then: #if we are in lockout turn heat off
             switch.turn_off: pool_heat_raw
@@ -1245,23 +1248,28 @@ switch:
         return false;
       }
     turn_on_action:
-      - if:
+      # Check valve states so we can set the pump speed appropriately
+      - if: 
           condition:
             switch.is_on: fountains
           then:
             - switch.turn_on: valve_spa
-            - delay: 15s
+            - delay: 15s # wait for valve to complete motion before moving on
             - switch.turn_on: pump3
           else:
             - switch.turn_on: valve_spa
             - switch.turn_off: valve_return
-            - delay: 15s
+            - delay: 15s # wait for valve to complete motion before moving on
             - switch.turn_on: pump2
     turn_off_action:
+      # Check valve states so we can set the pump speed appropriately
       - if:
           condition:
             switch.is_on: fountains
           then:
+            # Check if the pump is on or off
+            # this prevents us from turning the pump on when moving valves if it has been turned off.
+            # i.e. turning pump off for the night then turning off fountains and spa, instead of the other way around
             - if:
                 condition:
                   lambda: |-
@@ -1274,6 +1282,9 @@ switch:
                   - switch.turn_on: pump2
             - switch.turn_off: valve_spa
           else:
+            # Check if the pump is on or off
+            # this prevents us from turning the pump on when moving valves if it has been turned off.
+            # i.e. turning pump off for the night then turning off fountains and spa, instead of the other way around
             - if:
                 condition:
                   lambda: |-
@@ -1297,23 +1308,28 @@ switch:
         return false;
       }
     turn_on_action:
+      # Check valve states so we can set the pump speed appropriately
       - if:
           condition:
             switch.is_on: valve_spa
           then:
             - switch.turn_on: valve_fountains
-            - delay: 15s
+            - delay: 15s # wait for valve to complete motion before moving on
             - switch.turn_on: pump3
           else:
             - switch.turn_on: valve_fountains
             - switch.turn_off: valve_return
-            - delay: 15s
+            - delay: 15s # wait for valve to complete motion before moving on
             - switch.turn_on: pump2
     turn_off_action:
+      # Check valve states so we can set the pump speed appropriately
       - if:
           condition:
             switch.is_on: valve_spa
           then:
+            # Check if the pump is on or off
+            # this prevents us from turning the pump on when moving valves if it has been turned off.
+            # i.e. turning pump off for the night then turning off fountains and spa, instead of the other way around
             - if:
                 condition:
                   lambda: |-
@@ -1327,6 +1343,9 @@ switch:
             - switch.turn_off: fountain_lights
             - switch.turn_off: valve_fountains
           else:
+            # Check if the pump is on or off
+            # this prevents us from turning the pump on when moving valves if it has been turned off.
+            # i.e. turning pump off for the night then turning off fountains and spa, instead of the other way around
             - if:
                 condition:
                   lambda: |-
@@ -1371,6 +1390,8 @@ switch:
         return false;
       }
     on_turn_off:
+      # check if any of teh color change scripts are running. only change state if they are not.
+      #  color change requires this trans to bounch on and off in specific timing patterns
       - if:
           condition:
             lambda: |-
@@ -1396,6 +1417,8 @@ switch:
         return false;
       }
     on_turn_on:
+      # prevent turning on fountain lights if the fountains are not on and running
+      # these lights should not be on if no water is flowing through the units
       - if:
           condition:
             switch.is_on: fountains
@@ -1419,7 +1442,7 @@ switch:
       - switch.turn_off: spa_jets
 
 # Relay outputs pin A0 -> relay 1, pin B0 -> relay 9      
-  #physical relay for pool heating
+  # Physical relay for pool heating. Do not use in code. use pool_heat instead as that check lockout state
   - platform: gpio
     #name: "Pool Heat Raw"
     id: 'pool_heat_raw'
