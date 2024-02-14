@@ -1,6 +1,7 @@
 substitutions:
   device_name: test-dimmer
   friendly_name: Test Dimmer
+  min_brightness: '50'
   
 esphome:
   name: ${device_name}
@@ -16,11 +17,9 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-#    key: !secret mj-fc-01-master-bed-api-key
     key: !secret api-key
 
 ota:
-#  password: !secret mj-fc-01-master-bed-ota-pass
   password: !secret ota-pass
 
 wifi:
@@ -30,12 +29,8 @@ wifi:
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     password: !secret ap-pass
-#    password: !secret mj-fc-01-master-bed-ap-pass
 
 captive_portal:
-
-#web_server:
-#  port: 80
 
 uart:
   rx_pin: GPIO3
@@ -61,6 +56,7 @@ script:
             - lambda: 'return was_phy == 1;'
           then:
             - light.toggle: test_light
+#            - light.toggle: test_mono
             - logger.log: "was_phy was 1"
           else:
             - logger.log: "was_phy was 0"
@@ -80,7 +76,7 @@ light:
     name: "dim1"
     id: test_dimmer
     dimmer_datapoint: 2
-    min_value: 50
+    min_value: ${min_brightness}
     switch_datapoint: 1
     restore_mode: ALWAYS_ON
     on_turn_off:
@@ -99,15 +95,31 @@ light:
     name: "test Light"
     id: test_light
     output: light_output
-    on_state:
+#    on_state:
+#      - script.execute:
+#          id: hack
+#          was_phy: 0
+    on_turn_on:
+      - script.execute:
+          id: hack
+          was_phy: 0
+    on_turn_off:
       - script.execute:
           id: hack
           was_phy: 0
 
-  - platform: monochromatic
-    name: Test mono
-    id: test_mono
-    output: test_output
+#  - platform: monochromatic
+#    name: Test mono
+#    id: test_mono
+#    output: test_output
+#    on_turn_on:
+#      - script.execute:
+#          id: hack
+#          was_phy: 0
+#    on_turn_off:
+#      - script.execute:
+#          id: hack
+#          was_phy: 0
 
 output:
   - platform: template
@@ -126,8 +138,10 @@ output:
             - logger.log: "phy_switch was false"
             - light.toggle: test_dimmer
 
-  - platform: template
-    id: test_output
-    type: float
-    write_action:
-      - logger.log: "test output"
+#  - platform: template
+#    id: test_output
+#    type: float
+#    write_action:
+#      - light.control:
+#         id: test_dimmer
+#         brightness: !lambda return state;
