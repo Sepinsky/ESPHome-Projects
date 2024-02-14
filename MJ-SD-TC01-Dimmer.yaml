@@ -1,0 +1,133 @@
+substitutions:
+  device_name: test-dimmer
+  friendly_name: Test Dimmer
+  
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+  baud_rate: 0
+  
+# Enable Home Assistant API
+api:
+  encryption:
+#    key: !secret mj-fc-01-master-bed-api-key
+    key: !secret api-key
+
+ota:
+#  password: !secret mj-fc-01-master-bed-ota-pass
+  password: !secret ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    password: !secret ap-pass
+#    password: !secret mj-fc-01-master-bed-ap-pass
+
+captive_portal:
+
+#web_server:
+#  port: 80
+
+uart:
+  rx_pin: GPIO3
+  tx_pin: GPIO1
+  baud_rate: 9600
+
+tuya:
+
+globals:
+  - id: phy_switch
+    type: bool
+    initial_value: 'false'
+
+script:
+  - id: hack
+    mode: single
+    parameters:
+      was_phy: int
+    then:
+      - logger.log: "in script"
+      - if:
+          condition:
+            - lambda: 'return was_phy == 1;'
+          then:
+            - light.toggle: test_light
+            - logger.log: "was_phy was 1"
+          else:
+            - logger.log: "was_phy was 0"
+            - globals.set:
+                id: phy_switch
+                value: 'false'
+      - delay: 1s
+
+binary_sensor:
+  - platform: template
+    name: phy_switch
+    lambda: |-
+      return id(phy_switch);
+
+light:
+  - platform: "tuya"
+    name: "dim1"
+    id: test_dimmer
+    dimmer_datapoint: 2
+    min_value: 50
+    switch_datapoint: 1
+    restore_mode: ALWAYS_ON
+    on_turn_off:
+      - globals.set:
+          id: phy_switch
+          value: 'true'
+      - script.execute:
+          id: hack
+          was_phy: 1 
+      - script.wait: hack
+      - globals.set:
+          id: phy_switch
+          value: 'false'
+
+  - platform: binary
+    name: "test Light"
+    id: test_light
+    output: light_output
+    on_state:
+      - script.execute:
+          id: hack
+          was_phy: 0
+
+  - platform: monochromatic
+    name: Test mono
+    id: test_mono
+    output: test_output
+
+output:
+  - platform: template
+    id: light_output
+    type: binary
+    write_action:
+      - if:
+          condition:
+            - lambda: 'return id(phy_switch);'
+          then:
+            - logger.log: "phy_switch was true"
+            - globals.set:
+                id: phy_switch
+                value: 'false'
+          else:
+            - logger.log: "phy_switch was false"
+            - light.toggle: test_dimmer
+
+  - platform: template
+    id: test_output
+    type: float
+    write_action:
+      - logger.log: "test output"
