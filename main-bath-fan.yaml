@@ -1,0 +1,172 @@
+substitutions:
+  device_name: mj-ss02
+  friendly_name: Main Bath
+  humidity_rise_threshold: "2"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp8266:
+  board: esp8285
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api-key
+
+ota:
+  password: !secret ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    password: !secret ap-pass
+
+captive_portal:
+  
+i2c:
+  sda: GPIO13
+  scl: GPIO04
+
+globals:
+  - id: humidity_now
+    type: float
+    initial_value: '0'
+
+  - id: humidity_last
+    type: float
+    initial_value: '0'
+
+  - id: humidity_on_value
+    type: float
+    initial_value: '100'
+
+# add minimum fan duration timer
+#add running average over an hour and set that to trigger fan shutdown and startup. if humidity rises above 4% over average start fan when it reaches 1% over average stop fan
+sensor:
+  - platform: aht10
+    id: aht10_sensor
+    update_interval: 30s
+    temperature:
+      name: "${friendly_name} Temperature"
+    humidity:
+      name: "${friendly_name} Humidity"
+      on_value:
+        then:
+          # if statement in lambda appears to be broken - this should turn off the red led and the fan
+          - lambda: |-
+              id(humidity_now) = x;
+              id(sensor_delta).update();
+              if ((id(red_led).state) && (x <= id(humidity_on_value))) {
+                id(red_led).turn_off();
+              }
+
+  - platform: template
+    id: sensor_delta
+    name: Sensor Delta
+    update_interval: never
+    filters:
+    - clamp:
+        min_value: 0
+    - skip_initial: 2
+    lambda: |-
+      float humidity_delta = id(humidity_now) - id(humidity_last);
+      id(humidity_last) = id(humidity_now);
+      return humidity_delta;
+
+  - platform: template
+    name: Humidity Last
+    lambda: |-
+      return id(humidity_last);
+
+  - platform: template
+    name: Humidity Now
+    lambda: |-
+      return id(humidity_now);
+
+  - platform: template
+    name: Humidity On Value
+    lambda: |-
+      return id(humidity_on_value);
+
+switch:
+  - platform: gpio
+    id: relay
+    name: ${friendly_name} Fan
+    icon: mdi:fan
+    pin: GPIO05
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - switch.turn_off: blue_led
+    on_turn_off:
+      - switch.turn_on: blue_led
+
+  - platform: gpio
+    pin: GPIO12
+    name: Red Led
+    id: red_led
+#    internal: true
+    inverted: true
+    restore_mode: ALWAYS_OFF
+
+  - platform: gpio
+    pin: GPIO14
+    name: Blue Led
+    id: blue_led
+#    internal: true
+    inverted: true
+    restore_mode: ALWAYS_ON
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO03
+      mode: INPUT_PULLUP
+      inverted: true
+    id: main_button
+    internal: true
+    on_press:
+      - if:
+          condition:
+            - switch.is_off: red_led
+          then:
+            - switch.toggle: relay
+    on_click:
+      min_length: 1s
+      max_length: 4s
+      then:
+        - if:
+            condition:
+              - switch.is_on: red_led
+            then:
+              - switch.toggle: relay
+
+  - platform: analog_threshold
+    name: Humidity High
+    id: humidity_high
+    sensor_id: sensor_delta
+    threshold: ${humidity_rise_threshold}
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_off: red_led
+            then:
+              - switch.turn_on: red_led
+              - switch.turn_on: relay
+              # it might make sense for this lambda to do pointed to humidity_now instead
+              - lambda: |-
+                  id(humidity_on_value) = id(humidity_last);
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "${friendly_name} Restart"
+    entity_category: diagnostic
