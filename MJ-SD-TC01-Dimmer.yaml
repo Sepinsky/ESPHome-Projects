@@ -1,3 +1,5 @@
+# This config mostly works, but there is some weird behavior with power on syncing. the light might be on, but the switch indicates off.
+# also, if the light is off and you change brightness setting on the hardware the light will not come on the first time the on button is pressed. it will come on the second time.
 substitutions:
   device_name: dining-room-dimmer
   friendly_name: Dining Room Dimmer
