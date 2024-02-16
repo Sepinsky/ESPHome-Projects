@@ -1,0 +1,196 @@
+# improved version of dimmer config. this config is not compete. hardware died before it could be finished. take care with sensor updates as they can case a loop the makes the MCU non responsive. 
+substitutions:
+  device_name: dining-room-dimmer
+  friendly_name: Dining Room Dimmer
+  min_brightness: '50'
+  
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -100
+    then:
+      - lambda: id(tuya_brightness_sensor).update();
+      - lambda: id(dimmer_brightness_sensor).update();
+
+
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+  baud_rate: 0
+  
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api-key
+
+ota:
+  password: !secret ota-pass
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    password: !secret ap-pass
+
+captive_portal:
+
+uart:
+  rx_pin: GPIO3
+  tx_pin: GPIO1
+  baud_rate: 9600
+
+tuya:
+
+script:
+  - id: sync_hack
+    mode: single
+    parameters:
+      was_phy: int
+    then:
+      - logger.log: "in script"
+      - if:
+          condition:
+            - lambda: 'return was_phy == 1;'
+          then:
+            - logger.log: "was_phy was 1"
+            - light.toggle: internal_dimmer
+          else:
+            - logger.log: "was_phy was 0"
+            - light.toggle: tuya_dimmer
+      - delay: 1s
+    
+  # place all tuya_dimmer on_state actions here  
+  - id: tuya_on_state_debounce
+    mode: single
+    then:
+      - logger.log: "tuya on_state debounce script started"
+      - if:
+          condition:
+            - lambda: 'return (id(tuya_dimmer).current_values.get_brightness()) != (id(tuya_brightness_setting));'
+          then:
+            - logger.log: "Updating tuya_brightness global"
+            - globals.set:
+                id: tuya_brightness_setting
+                value: !lambda 'return id(tuya_dimmer).current_values.get_brightness();'
+            - lambda: id(tuya_brightness_sensor).update();
+      - delay: 1s
+
+  # place all tuya_dimmer on_turn_off actions here  
+  - id: tuya_on_turn_off_debounce
+    mode: single
+    then:
+      - logger.log: "tuya on_turn_off debounce script started"
+      - logger.log: "toggling internal dimmer tracker"
+      - switch.toggle: tuya_output_state
+      - delay: 1s
+
+light:
+  - platform: "tuya"
+    name: hardware dimmer
+    id: tuya_dimmer
+    dimmer_datapoint: 2
+    min_value: ${min_brightness}
+    switch_datapoint: 1
+    restore_mode: ALWAYS_ON
+    on_turn_off:
+      - logger.log: "starting on_turn_off from tuya"
+      - script.execute: tuya_on_turn_off_debounce
+
+    on_state:
+      - logger.log: "starting on_state from tuya"
+      - script.execute: tuya_on_state_debounce
+
+  - platform: monochromatic
+    name: ${friendly_name}
+    id: internal_dimmer
+    output: dimmer_output
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+    on_state:
+      - logger.log: "starting on_state from internal dimmer"
+      - if:
+          condition:
+            - lambda: 'return (id(internal_dimmer).current_values.get_brightness()) != (id(dimmer_brightness_setting));'
+          then:
+            - logger.log: "Updating dimmer_brightness global"
+            - globals.set:
+                id: dimmer_brightness_setting
+                value: !lambda 'return id(internal_dimmer).current_values.get_brightness();'
+            - lambda: id(dimmer_brightness_sensor).update();
+      
+    on_turn_on:
+      - logger.log: "starting on_turn_on from internal"
+      
+    on_turn_off:
+      - logger.log: "starting on_turn_off from internal"
+
+output:
+  - platform: template
+    id: dimmer_output
+    type: float
+    write_action:
+      - logger.log: "Dummy output"
+
+button:
+  - platform: restart
+    id: restart_button
+    name: Restart
+    entity_category: diagnostic
+
+
+# potential alternate method
+# create 4 variables tuya_state (on/off), internal_state (on/off), tuya_brightness (float), internal_brightness (float)
+# when something happens with a device feed current data into variables
+# create sensors that watch for changes in state and act accordingly
+# on boot -100 to set brightness levels for globals (expect to see them at 1.0)
+
+switch:
+  - platform: template
+    name: Tuya State
+    id: tuya_output_state
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+
+globals:
+  - id: tuya_brightness_setting
+    type: float
+    initial_value: '1'
+
+  - id: dimmer_brightness_setting
+    type: float
+    initial_value: '1'
+
+sensor:
+  - platform: template
+    name: Tuya Brightness
+    id: tuya_brightness_sensor
+    update_interval: never
+    accuracy_decimals: 2
+    lambda: 'return id(tuya_brightness_setting);'
+    on_value:
+      then:
+        - logger.log: "tuya brightness changed!"
+        - light.control:
+            id: internal_dimmer
+            brightness: !lambda return id(tuya_brightness_setting);
+        #- lambda: id(dimmer_brightness_sensor).update(); -> this causes loop that kills the esp32
+            
+
+  - platform: template
+    name: Dimmer Brightness
+    id: dimmer_brightness_sensor
+    update_interval: never
+    accuracy_decimals: 2
+    lambda: 'return id(dimmer_brightness_setting);'
+    on_value:
+      then:
+        - logger.log: "dimmer brightness changed!"
+        - light.control:
+            id: tuya_dimmer
+            brightness: !lambda return id(dimmer_brightness_setting);
+        #- lambda: id(tuya_brightness_sensor).update(); -> this causes loop that kills the esp32
