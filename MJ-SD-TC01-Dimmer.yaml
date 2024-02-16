@@ -1,6 +1,6 @@
 substitutions:
-  device_name: test-dimmer
-  friendly_name: Test Dimmer
+  device_name: dining-room-dimmer
+  friendly_name: Dining Room Dimmer
   min_brightness: '50'
   
 esphome:
@@ -39,13 +39,8 @@ uart:
 
 tuya:
 
-globals:
-  - id: phy_switch
-    type: bool
-    initial_value: 'false'
-
 script:
-  - id: hack
+  - id: sync_hack
     mode: single
     parameters:
       was_phy: int
@@ -55,93 +50,103 @@ script:
           condition:
             - lambda: 'return was_phy == 1;'
           then:
-            - light.toggle: test_light
-#            - light.toggle: test_mono
             - logger.log: "was_phy was 1"
+            - light.toggle: internal_dimmer
           else:
             - logger.log: "was_phy was 0"
-            - globals.set:
-                id: phy_switch
-                value: 'false'
+            - light.toggle: tuya_dimmer
       - delay: 1s
-
-binary_sensor:
-  - platform: template
-    name: phy_switch
-    lambda: |-
-      return id(phy_switch);
 
 light:
   - platform: "tuya"
-    name: "dim1"
-    id: test_dimmer
+#    name: "dim1"
+    id: tuya_dimmer
     dimmer_datapoint: 2
     min_value: ${min_brightness}
     switch_datapoint: 1
-    restore_mode: ALWAYS_ON
+    restore_mode: ALWAYS_OFF
     on_turn_off:
-      - globals.set:
-          id: phy_switch
-          value: 'true'
-      - script.execute:
-          id: hack
-          was_phy: 1 
-      - script.wait: hack
-      - globals.set:
-          id: phy_switch
-          value: 'false'
+      - logger.log: "starting on_turn_off from tuya"
+      - if:
+          condition:
+            - lambda: 'return (id(tuya_dimmer).current_values.get_brightness()) != (id(internal_dimmer).current_values.get_brightness());'
+          then:
+            - light.control:
+                id: internal_dimmer
+                brightness: !lambda return id(tuya_dimmer).current_values.get_brightness();
+          else:
+            - script.execute:
+                id: sync_hack
+                was_phy: 1
+    on_state:
+      - logger.log: "starting on_state from tuya"
+      - logger.log:
+          format: "Tuya setting %.2f Internal setting %.2f from Tuya control"
+          args: [ 'id(tuya_dimmer).current_values.get_brightness()' , 'id(internal_dimmer).current_values.get_brightness()' ]
+      - if:
+          condition:
+            - lambda: 'return ((id(tuya_dimmer).current_values.get_brightness()) != (id(internal_dimmer).current_values.get_brightness())) && (id(internal_dimmer).current_values.is_on());'
+          then:
+            - light.control:
+                id: internal_dimmer
+                brightness: !lambda return id(tuya_dimmer).current_values.get_brightness();
 
-  - platform: binary
-    name: "test Light"
-    id: test_light
+  - platform: monochromatic
+    name: ${friendly_name}
+    id: internal_dimmer
     output: light_output
-#    on_state:
-#      - script.execute:
-#          id: hack
-#          was_phy: 0
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+    on_state:
+      - logger.log: "starting on_state from internal"
+      - logger.log:
+          format: "Tuya setting %.2f Internal setting %.2f from internal control"
+          args: [ 'id(tuya_dimmer).current_values.get_brightness()' , 'id(internal_dimmer).current_values.get_brightness()' ]
+      - if:
+          condition:
+            - lambda: 'return (id(tuya_dimmer).current_values.get_brightness()) != (id(internal_dimmer).current_values.get_brightness());'
+          then:
+            - light.control:
+                id: tuya_dimmer
+                brightness: !lambda return id(internal_dimmer).current_values.get_brightness();
     on_turn_on:
+      - logger.log: "starting on_turn_on from internal"
+      - if:
+          condition:
+            - lambda: 'return (id(tuya_dimmer).current_values.get_brightness()) != (id(internal_dimmer).current_values.get_brightness());'
+          then:
+            - light.control:
+                id: tuya_dimmer
+                brightness: !lambda return id(internal_dimmer).current_values.get_brightness();
+      - logger.log: "starting script from internal on_turn_on"
       - script.execute:
-          id: hack
+          id: sync_hack
           was_phy: 0
     on_turn_off:
+      - logger.log: "starting on_turn_off from internal"
+      - logger.log: "starting script from internal on_turn_off"
       - script.execute:
-          id: hack
+          id: sync_hack
           was_phy: 0
-
-#  - platform: monochromatic
-#    name: Test mono
-#    id: test_mono
-#    output: test_output
-#    on_turn_on:
-#      - script.execute:
-#          id: hack
-#          was_phy: 0
-#    on_turn_off:
-#      - script.execute:
-#          id: hack
-#          was_phy: 0
 
 output:
   - platform: template
     id: light_output
-    type: binary
+    type: float
     write_action:
-      - if:
-          condition:
-            - lambda: 'return id(phy_switch);'
-          then:
-            - logger.log: "phy_switch was true"
-            - globals.set:
-                id: phy_switch
-                value: 'false'
-          else:
-            - logger.log: "phy_switch was false"
-            - light.toggle: test_dimmer
+      - logger.log: "Dummy output"
+      - logger.log:
+          format: "internal dimmer setting in output is %.2f"
+          args: [ 'id(internal_dimmer).current_values.get_brightness()' ]
 
-#  - platform: template
-#    id: test_output
-#    type: float
-#    write_action:
-#      - light.control:
-#         id: test_dimmer
-#         brightness: !lambda return state;
+button:
+  - platform: restart
+    id: restart_button
+    name: Restart
+    entity_category: diagnostic
+
+
+# potential alternate method
+# create 4 variables tuya_state (on/off), internal_state (on/off), tuya_brightness (float), internal_brightness (float)
+# when something happens with a device feed current data into variables
+# create sensors that watch for changes in state and act accordingly
