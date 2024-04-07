@@ -1,6 +1,10 @@
-esphome:
-  name: "pool-controller"
+substitutions:
+  device_name: pool-controller
   friendly_name: Pool Controller
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
   on_boot:
     priority: -100
     then: #check if restore of previous light color failed. if so run reset lights to default
@@ -28,10 +32,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret pool-controller-api-key
+    key: !secret api-key
 
 ota:
-  password: !secret pool-controller-ota-pass
+    password: !secret ota-pass
 
 wifi:
   ssid: !secret wifi_ssid
@@ -39,8 +43,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Pool-Controller Fallback Hotspot"
-    password: !secret pool-controller-ap-pass
+    password: !secret ap-pass
 
 captive_portal:
 
@@ -1516,7 +1519,7 @@ switch:
 
   #power for transformer to operate valves
   - platform: gpio
-    #name: "Valve Transformer"
+    name: "Valve Transformer"
     id: 'valve_trans'
     pin:
       mcp23xxx: relay_board01
